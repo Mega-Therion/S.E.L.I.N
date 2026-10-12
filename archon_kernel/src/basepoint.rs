@@ -95,4 +95,41 @@ mod tests {
         let seal = generate_basepoint_seal("a,b,c", &salt);
         assert!(!verify_basepoint_seal("a,b,X", &salt_hex, &seal));
     }
+
+    #[test]
+    fn test_randomness_distribution() {
+        // Collect multiple CSPRNG draws and ensure uniqueness and non-zero distribution
+        let mut draws = std::collections::HashSet::new();
+        for _ in 0..100 {
+            let entropy = generate_entropy().expect("entropy generation must succeed");
+            assert!(!entropy.iter().all(|&b| b == 0), "entropy cannot be all zeroes");
+            assert!(draws.insert(entropy), "entropy draws must be strictly unique");
+        }
+    }
+
+    #[test]
+    fn test_tamper_detection() {
+        let salt = generate_entropy().unwrap();
+        let salt_hex = hex::encode(salt);
+        let seal = generate_basepoint_seal("sovereignty,truth", &salt);
+
+        // 1. Valid seal passes
+        assert!(verify_basepoint_seal("sovereignty,truth", &salt_hex, &seal));
+
+        // 2. Tampered values fails
+        assert!(!verify_basepoint_seal("sovereignty,falsehood", &salt_hex, &seal));
+
+        // 3. Tampered salt fails
+        let mut tampered_salt_bytes = hex::decode(&salt_hex).unwrap();
+        tampered_salt_bytes[0] ^= 0xFF;
+        let tampered_salt_hex = hex::encode(tampered_salt_bytes);
+        assert!(!verify_basepoint_seal("sovereignty,truth", &tampered_salt_hex, &seal));
+
+        // 4. Tampered seal bytes fails
+        let mut tampered_seal_bytes = hex::decode(&seal).unwrap();
+        let last_idx = tampered_seal_bytes.len() - 1;
+        tampered_seal_bytes[last_idx] ^= 0xAA;
+        let tampered_seal_hex = hex::encode(tampered_seal_bytes);
+        assert!(!verify_basepoint_seal("sovereignty,truth", &salt_hex, &tampered_seal_hex));
+    }
 }

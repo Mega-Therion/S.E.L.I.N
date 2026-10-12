@@ -102,27 +102,33 @@ pub async fn govern(client: &Client, cfg: &GovernConfig, prompt: &str) -> Govern
     let verifier_prompt = build_verifier_prompt(prompt, &answer);
     let v_endpoint = cfg.verifier_endpoint();
     let v_model = cfg.verifier_model();
-    let (v, j, source) = match call_model(client, &v_endpoint, &v_model, &verifier_prompt).await {
+    let (v, j, source, verifier_unavail) = match call_model(client, &v_endpoint, &v_model, &verifier_prompt).await {
         Ok(vraw) => match AdaptiveResilientFormatter::parse_and_repair_json(&vraw)
             .ok()
             .and_then(|json| extract_scores(&json))
         {
-            Some((v, j)) => (v, j, format!("verifier-scored ({v_model})")),
+            Some((v, j)) => (v, j, format!("verifier-scored ({v_model})"), false),
             None => (
                 FAIL_CLOSED.0,
                 FAIL_CLOSED.1,
                 "fail-closed: verifier returned no usable score".to_string(),
+                false,
             ),
         },
         Err(e) => (
             FAIL_CLOSED.0,
             FAIL_CLOSED.1,
             format!("fail-closed: verifier call failed: {e}"),
+            true,
         ),
     };
 
     // 4. Chiral verdict + persist.
-    let report = gate.evaluate(v, j);
+    let mut report = gate.evaluate(v, j);
+    if verifier_unavail {
+        report.passed = false;
+        report.rejection_reason = Some("verifier_unavailable".to_string());
+    }
     persist(&run_id, &prompt_hash, &report, &cfg.endpoint, &answer).await;
     let output = report.passed.then(|| answer.trim().to_string());
     outcome(run_id, &report, tier, source, output)
