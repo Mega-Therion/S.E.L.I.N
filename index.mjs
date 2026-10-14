@@ -3,7 +3,6 @@ import { pathToFileURL } from 'url';
 import { evaluate, CHIRAL_FLOOR } from './gate.mjs';
 
 const PORT = process.env.PORT || 3000;
-const BASE44_APP_URL = 'https://chyren-archon-core.base44.app';
 
 function send(res, code, body) {
   res.writeHead(code, { 'Content-Type': 'application/json' });
@@ -11,7 +10,7 @@ function send(res, code, body) {
 }
 
 export function handle(req, res) {
-  // CORS Headers for Base44 app interface
+  // CORS: the edge is a stateless formula endpoint and holds no session, so any origin may call it
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-App-Id');
@@ -29,7 +28,6 @@ export function handle(req, res) {
     // so it does not claim an armed control loop.
     send(res, 200, {
       app: 'Chyren Archon-SELIN Sovereign Engine',
-      interface: BASE44_APP_URL,
       platform: 'Vercel Serverless',
       adccl: 'formula-only',
       gate: { formula: 'chi = sqrt((V^2 + (1 - J)^2) / 2)', floor: CHIRAL_FLOOR, scores: 'supplied by caller' },
@@ -63,7 +61,6 @@ export function handle(req, res) {
         threshold: report.threshold,
         passed: report.passed,
         rejection_reason: report.rejection_reason,
-        interface: BASE44_APP_URL,
         timestamp: new Date().toISOString(),
       });
     });

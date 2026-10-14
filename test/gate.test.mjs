@@ -71,3 +71,11 @@ test('status does not claim an armed loop', async () => {
     assert.equal(s.gate.floor, Math.SQRT1_2);
   });
 });
+
+test('no response names a personal Base44 app', async () => {
+  await withServer(async (base) => {
+    const status = await (await fetch(`${base}/api/archon/status`)).text();
+    const verdict = await (await post(base, JSON.stringify({ V: 0.9, J: 0.1 }))).text();
+    assert.doesNotMatch(status + verdict, /base44/i);
+  });
+});
