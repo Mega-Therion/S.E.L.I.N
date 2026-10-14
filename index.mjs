@@ -1,6 +1,6 @@
 import { createServer } from 'http';
 import { pathToFileURL } from 'url';
-import { evaluate, CHIRAL_FLOOR } from './gate.mjs';
+import { evaluate, CHIRAL_FLOOR, SOVEREIGN_CEILING, MIRROR_GAP_MIN } from './gate.mjs';
 
 const PORT = process.env.PORT || 3000;
 
@@ -30,7 +30,14 @@ export function handle(req, res) {
       app: 'Chyren Archon-SELIN Sovereign Engine',
       platform: 'Vercel Serverless',
       adccl: 'formula-only',
-      gate: { formula: 'chi = sqrt((V^2 + (1 - J)^2) / 2)', floor: CHIRAL_FLOOR, scores: 'supplied by caller' },
+      gate: {
+        formula: 'chi = sqrt((V^2 + (1 - J)^2) / 2)',
+        checks: ['finiteness', 'floor', 'mirror', 'components', 'ceiling'],
+        floor: CHIRAL_FLOOR,
+        ceiling: SOVEREIGN_CEILING,
+        mirror_gap_min: MIRROR_GAP_MIN,
+        scores: 'supplied by caller',
+      },
       timestamp: new Date().toISOString(),
     });
     return;
@@ -58,6 +65,8 @@ export function handle(req, res) {
         V: report.v_gate_score,
         J: report.drift_penalty_j,
         chi: report.chiral_invariant,
+        mirror_chi: report.mirror_chi,
+        signal: report.signal,
         threshold: report.threshold,
         passed: report.passed,
         rejection_reason: report.rejection_reason,

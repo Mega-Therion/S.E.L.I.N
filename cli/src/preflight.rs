@@ -106,8 +106,9 @@ pub async fn execute_preflight_probe(endpoint: &str) -> PreflightResult {
             } else {
                 PreflightResult::Fail {
                     reason: format!(
-                        "ADCCL gate rejected probe response: χ={:.4} < 0.7071",
-                        report.chiral_invariant
+                        "ADCCL gate rejected probe response: χ={:.4}; {}",
+                        report.chiral_invariant,
+                        report.rejection_reason.as_deref().unwrap_or("refused")
                     ),
                 }
             }

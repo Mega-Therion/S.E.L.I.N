@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { computeChiralInvariant, evaluate, CHIRAL_FLOOR } from '../gate.mjs';
+import { computeChiralInvariant, mirrorChi, evaluate, CHIRAL_FLOOR, SOVEREIGN_CEILING, MIRROR_GAP_MIN } from '../gate.mjs';
 import { handle } from '../index.mjs';
 
 // The reference table of archon_kernel/src/adccl_gate.rs (test_reference_fixture_table).
@@ -77,5 +77,41 @@ test('no response names a personal Base44 app', async () => {
     const status = await (await fetch(`${base}/api/archon/status`)).text();
     const verdict = await (await post(base, JSON.stringify({ V: 0.9, J: 0.1 }))).text();
     assert.doesNotMatch(status + verdict, /base44/i);
+  });
+});
+
+test('the three holes of a floor-only gate are closed', () => {
+  const zero = evaluate(0, 0);
+  assert.ok(Math.abs(zero.chiral_invariant - CHIRAL_FLOOR) < 1e-12);
+  assert.equal(zero.passed, false);
+  assert.equal(zero.signal, 'abort');
+  assert.equal(evaluate(1, 1).passed, false);
+  assert.equal(evaluate(1, 1).signal, 'abort');
+  assert.equal(evaluate(1, 0.9).passed, false);
+  const over = evaluate(1, 0);
+  assert.equal(over.passed, false);
+  assert.equal(over.signal, 'suspend');
+});
+
+test('a pass means every check is silent (grid over the unit square)', () => {
+  let passes = 0;
+  for (let a = 0; a <= 100; a++) {
+    for (let b = 0; b <= 100; b++) {
+      const v = a / 100, j = b / 100;
+      const chi = computeChiralInvariant(v, j);
+      const ok = chi >= CHIRAL_FLOOR && chi <= SOVEREIGN_CEILING && chi - mirrorChi(v, j) >= MIRROR_GAP_MIN
+        && v >= CHIRAL_FLOOR && 1 - j >= CHIRAL_FLOOR;
+      assert.equal(evaluate(v, j).passed, ok, `V=${v} J=${j}`);
+      passes += ok ? 1 : 0;
+    }
+  }
+  assert.ok(passes > 0);
+});
+
+test('route reports the signal and refuses the zero-verifiability case', async () => {
+  await withServer(async (base) => {
+    const r = await (await post(base, JSON.stringify({ V: 0, J: 0 }))).json();
+    assert.equal(r.passed, false);
+    assert.equal(r.signal, 'abort');
   });
 });
