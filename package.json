@@ -2,25 +2,25 @@
   "name": "chyren-selin",
   "version": "1.0.0",
   "description": "![SELIN Hero](Visuals/hero.png)",
-  "main": "index.js",
+  "main": "index.mjs",
   "directories": {
     "doc": "docs"
   },
   "scripts": {
     "build": "echo 'build ok'",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test test/gate.test.mjs"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Mega-Therion/chyren-selin.git"
+    "url": "git+https://github.com/Mega-Therion/S.E.L.I.N.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/Mega-Therion/chyren-selin/issues"
+    "url": "https://github.com/Mega-Therion/S.E.L.I.N/issues"
   },
-  "homepage": "https://github.com/Mega-Therion/chyren-selin#readme",
+  "homepage": "https://github.com/Mega-Therion/S.E.L.I.N#readme",
   "dependencies": {
     "@vercel/connect": "^0.6.1",
     "ai": "^7.0.55",
