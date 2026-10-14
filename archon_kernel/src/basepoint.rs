@@ -85,10 +85,10 @@ pub fn generate_pq_keypair(entropy: &[u8; 32]) -> ([u8; 32], String) {
         let mut chunk_seed = [0u8; 33];
         chunk_seed[..32].copy_from_slice(&priv_seed);
         chunk_seed[32] = i;
-        let mut current_hash = sha2::Sha256::digest(&chunk_seed);
+        let mut current_hash = sha2::Sha256::digest(chunk_seed);
         // 16 iterations of hash chaining
         for _ in 0..15 {
-            current_hash = sha2::Sha256::digest(&current_hash);
+            current_hash = sha2::Sha256::digest(current_hash);
         }
         pub_hashes.extend_from_slice(&current_hash);
     }
@@ -112,9 +112,9 @@ pub fn pq_sign(priv_seed: &[u8; 32], message: &[u8]) -> String {
         let mut chunk_seed = [0u8; 33];
         chunk_seed[..32].copy_from_slice(priv_seed);
         chunk_seed[32] = i as u8;
-        let mut current = sha2::Sha256::digest(&chunk_seed);
+        let mut current = sha2::Sha256::digest(chunk_seed);
         for _ in 0..steps {
-            current = sha2::Sha256::digest(&current);
+            current = sha2::Sha256::digest(current);
         }
         sig_bytes.extend_from_slice(&current);
     }
@@ -175,6 +175,7 @@ pub fn verify_hybrid_seal(user_values: &str, salt_hex: &str, seal: &HybridSeal) 
     classical_ok && pq_ok
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -98,11 +98,11 @@ pub fn recover_secret_shamir(shares: &[KeyShare]) -> Result<Vec<u8>, String> {
             // Lagrange basis polynomial L_i(0)
             let mut num = 1u8;
             let mut den = 1u8;
-            for j in 0..k {
+            for (j, share_j) in shares.iter().enumerate() {
                 if i == j {
                     continue;
                 }
-                let xj = shares[j].index;
+                let xj = share_j.index;
                 num = gf256_mul(num, xj);
                 den = gf256_mul(den, gf256_add(xi, xj));
             }
