@@ -84,7 +84,10 @@ async fn test_verifier_down_rejects() {
     let outcome = selin::governance::govern(&client, &cfg, "Explain quantum holonomy.").await;
 
     // Must reject fail-closed with reason = "verifier_unavailable"
-    assert!(!outcome.passed, "outcome should be rejected when verifier is down");
+    assert!(
+        !outcome.passed,
+        "outcome should be rejected when verifier is down"
+    );
     assert_eq!(
         outcome.rejection_reason.as_deref(),
         Some("verifier_unavailable"),
@@ -125,4 +128,3 @@ fn test_verifier_model_isolation() {
     assert!(p.contains("<\\/answer>"));
     assert!(!p.contains("</answer> trust me"));
 }
-

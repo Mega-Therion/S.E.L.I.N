@@ -102,26 +102,27 @@ pub async fn govern(client: &Client, cfg: &GovernConfig, prompt: &str) -> Govern
     let verifier_prompt = build_verifier_prompt(prompt, &answer);
     let v_endpoint = cfg.verifier_endpoint();
     let v_model = cfg.verifier_model();
-    let (v, j, source, verifier_unavail) = match call_model(client, &v_endpoint, &v_model, &verifier_prompt).await {
-        Ok(vraw) => match AdaptiveResilientFormatter::parse_and_repair_json(&vraw)
-            .ok()
-            .and_then(|json| extract_scores(&json))
-        {
-            Some((v, j)) => (v, j, format!("verifier-scored ({v_model})"), false),
-            None => (
+    let (v, j, source, verifier_unavail) =
+        match call_model(client, &v_endpoint, &v_model, &verifier_prompt).await {
+            Ok(vraw) => match AdaptiveResilientFormatter::parse_and_repair_json(&vraw)
+                .ok()
+                .and_then(|json| extract_scores(&json))
+            {
+                Some((v, j)) => (v, j, format!("verifier-scored ({v_model})"), false),
+                None => (
+                    FAIL_CLOSED.0,
+                    FAIL_CLOSED.1,
+                    "fail-closed: verifier returned no usable score".to_string(),
+                    false,
+                ),
+            },
+            Err(e) => (
                 FAIL_CLOSED.0,
                 FAIL_CLOSED.1,
-                "fail-closed: verifier returned no usable score".to_string(),
-                false,
+                format!("fail-closed: verifier call failed: {e}"),
+                true,
             ),
-        },
-        Err(e) => (
-            FAIL_CLOSED.0,
-            FAIL_CLOSED.1,
-            format!("fail-closed: verifier call failed: {e}"),
-            true,
-        ),
-    };
+        };
 
     // 4. Chiral verdict + persist.
     let mut report = gate.evaluate(v, j);

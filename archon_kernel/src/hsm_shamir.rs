@@ -24,7 +24,11 @@ pub struct HsmToken {
 
 /// Split a secret key into `n` shares requiring a threshold of `k` to reconstruct.
 /// Evaluates a random polynomial over GF(256) where f(0) = secret[i].
-pub fn split_secret_shamir(secret: &[u8], threshold: u8, total_shares: u8) -> Result<Vec<KeyShare>, String> {
+pub fn split_secret_shamir(
+    secret: &[u8],
+    threshold: u8,
+    total_shares: u8,
+) -> Result<Vec<KeyShare>, String> {
     if threshold < 2 {
         return Err("Threshold k must be at least 2".to_string());
     }
@@ -33,7 +37,8 @@ pub fn split_secret_shamir(secret: &[u8], threshold: u8, total_shares: u8) -> Re
     }
 
     let len = secret.len();
-    let mut shares_data: Vec<Vec<u8>> = (0..total_shares).map(|_| Vec::with_capacity(len)).collect();
+    let mut shares_data: Vec<Vec<u8>> =
+        (0..total_shares).map(|_| Vec::with_capacity(len)).collect();
 
     for &byte in secret {
         // Generate k-1 random coefficients
@@ -93,11 +98,11 @@ pub fn recover_secret_shamir(shares: &[KeyShare]) -> Result<Vec<u8>, String> {
             // Lagrange basis polynomial L_i(0)
             let mut num = 1u8;
             let mut den = 1u8;
-            for j in 0..k {
+            for (j, share_j) in shares.iter().enumerate() {
                 if i == j {
                     continue;
                 }
-                let xj = shares[j].index;
+                let xj = share_j.index;
                 num = gf256_mul(num, xj);
                 den = gf256_mul(den, gf256_add(xi, xj));
             }

@@ -1,11 +1,16 @@
 import { createServer } from 'http';
-import { streamText } from 'ai';
+import { pathToFileURL } from 'url';
+import { evaluate, CHIRAL_FLOOR } from './gate.mjs';
 
 const PORT = process.env.PORT || 3000;
-const BASE44_APP_URL = 'https://chyren-archon-core.base44.app';
 
-const server = createServer(async (req, res) => {
-  // CORS Headers for Base44 app interface
+function send(res, code, body) {
+  res.writeHead(code, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(body));
+}
+
+export function handle(req, res) {
+  // CORS: the edge is a stateless formula endpoint and holds no session, so any origin may call it
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-App-Id');
@@ -19,48 +24,54 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   if (url.pathname === '/api/archon/status' || url.pathname === '/') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
+    // This deployment runs the gate formula on scores the caller supplies. It runs no verifier and no model,
+    // so it does not claim an armed control loop.
+    send(res, 200, {
       app: 'Chyren Archon-SELIN Sovereign Engine',
-      interface: BASE44_APP_URL,
       platform: 'Vercel Serverless',
-      adccl: 'armed',
-      timestamp: new Date().toISOString()
-    }));
+      adccl: 'formula-only',
+      gate: { formula: 'chi = sqrt((V^2 + (1 - J)^2) / 2)', floor: CHIRAL_FLOOR, scores: 'supplied by caller' },
+      timestamp: new Date().toISOString(),
+    });
     return;
   }
 
   if (url.pathname === '/api/archon/verify' && req.method === 'POST') {
     let body = '';
-    req.on('data', chunk => { body += chunk; });
+    req.on('data', (chunk) => { body += chunk; });
     req.on('end', () => {
+      let parsed;
       try {
-        const { prompt } = JSON.parse(body || '{}');
-        const V = parseFloat((Math.random() * 0.5 + 0.5).toFixed(2));
-        const J = parseFloat((Math.random() * 0.5 + 0.5).toFixed(2));
-        const chi = parseFloat((V * J).toFixed(3));
-        const passed = chi >= 0.5;
-
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          run_id: crypto.randomUUID(),
-          prompt: prompt || 'Default verification',
-          V, J, chi, passed,
-          interface: BASE44_APP_URL,
-          timestamp: new Date().toISOString()
-        }));
+        parsed = JSON.parse(body || '{}');
       } catch (err) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: err.message }));
+        send(res, 400, { error: 'request body is not JSON' });
+        return;
       }
+      // Fail closed: without both scores there is nothing to gate, and no verdict is invented.
+      const report = evaluate(parsed.V, parsed.J);
+      if (!report.ok) {
+        send(res, 422, { passed: false, error: report.error });
+        return;
+      }
+      send(res, 200, {
+        run_id: crypto.randomUUID(),
+        V: report.v_gate_score,
+        J: report.drift_penalty_j,
+        chi: report.chiral_invariant,
+        threshold: report.threshold,
+        passed: report.passed,
+        rejection_reason: report.rejection_reason,
+        timestamp: new Date().toISOString(),
+      });
     });
     return;
   }
 
-  res.writeHead(404, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ error: 'Endpoint not found', path: url.pathname }));
-});
+  send(res, 404, { error: 'Endpoint not found', path: url.pathname });
+}
 
-server.listen(PORT, () => {
-  console.log(`Archon-SELIN Vercel Server running on port ${PORT}`);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  createServer(handle).listen(PORT, () => {
+    console.log(`Archon-SELIN Vercel Server running on port ${PORT}`);
+  });
+}
