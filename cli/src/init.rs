@@ -25,21 +25,48 @@ pub fn myelin_db_path() -> PathBuf {
     selin_dir().join("myelin.db")
 }
 
-/// Returns the database encryption key from basepoint.json, if present.
-/// Used to apply PRAGMA key when opening the Myelin store.
+/// Derive the 32-byte database key from the operator passphrase with Argon2id
+/// (19 MiB, 2 passes, 1 lane: the RustCrypto default parameters). Returns hex.
+pub fn derive_db_key(passphrase: &str, salt: &[u8]) -> Result<String, String> {
+    if passphrase.chars().count() < 8 {
+        return Err("database passphrase must be at least 8 characters".into());
+    }
+    let mut out = [0u8; 32];
+    argon2::Argon2::default()
+        .hash_password_into(passphrase.as_bytes(), salt, &mut out)
+        .map_err(|e| format!("argon2id failed: {e}"))?;
+    Ok(hex::encode(out))
+}
+
+/// The database key (work order item 3, part 2). The key is NOT stored: basepoint.json
+/// holds only a random salt, and the key is derived from SELIN_DB_PASSPHRASE with Argon2id.
+/// A legacy basepoint with a stored `db_key` is still read, with a warning to re-initialize.
 pub fn db_key() -> Option<String> {
     let raw = std::fs::read_to_string(basepoint_path()).ok()?;
     let v: JsonValue = serde_json::from_str(&raw).ok()?;
-    v.get("db_key")
+    if let Some(salt_hex) = v.get("db_key_salt").and_then(|s| s.as_str()) {
+        let salt = hex::decode(salt_hex).ok()?;
+        let pass = std::env::var("SELIN_DB_PASSPHRASE").ok()?;
+        return derive_db_key(&pass, &salt).ok();
+    }
+    let legacy = v
+        .get("db_key")
         .and_then(|k| k.as_str())
-        .map(|s| s.to_string())
+        .map(|s| s.to_string());
+    if legacy.is_some() {
+        eprintln!(
+            "[warn] this SELIN store keeps its database key in basepoint.json (legacy). \
+             Re-initialize with SELIN_FORCE_REINIT=1 to switch to a passphrase-derived key."
+        );
+    }
+    legacy
 }
 
 /// Open the Myelin SQLite store. A database key is REQUIRED: there is no unencrypted
 /// fallback (work order item 3). The chain columns are added to older stores on open.
 pub fn open_myelin() -> Result<rusqlite::Connection, String> {
     let key = db_key().ok_or_else(|| {
-        "no database key found; run `selin init` (SELIN never opens its audit store unencrypted)".to_string()
+        "no database key: set SELIN_DB_PASSPHRASE (or run `selin init` first). SELIN never opens its audit store unencrypted".to_string()
     })?;
     let conn = rusqlite::Connection::open(myelin_db_path())
         .map_err(|e| format!("could not open {}: {e}", myelin_db_path().display()))?;
@@ -172,14 +199,26 @@ async fn run_init() -> Result<(), String> {
         let _ = fs::set_permissions(selin_dir(), fs::Permissions::from_mode(0o700));
     }
 
-    // Generate a 32-byte database encryption key (SQLCipher).
-    // Stored in basepoint.json alongside the seal — both are local-only.
-    let db_key_bytes = generate_entropy()?;
-    let db_key_hex = hex::encode(db_key_bytes);
+    // Database key (SQLCipher): derived from the operator's passphrase with Argon2id.
+    // Only the random salt is stored; the key itself never touches disk.
+    let pass = match std::env::var("SELIN_DB_PASSPHRASE") {
+        Ok(p) => p,
+        Err(_) => dialoguer::Password::with_theme(&ColorfulTheme::default())
+            .with_prompt(
+                "Database passphrase (min 8 chars; needed on every run as SELIN_DB_PASSPHRASE)",
+            )
+            .with_confirmation("Confirm passphrase", "Passphrases did not match")
+            .interact()
+            .map_err(|e| format!("could not read passphrase: {e}"))?,
+    };
+    let db_salt = generate_entropy()?;
+    derive_db_key(&pass, &db_salt)?;
+    let db_salt_hex = hex::encode(db_salt);
+    // Make the key available to this process for the schema step below.
+    std::env::set_var("SELIN_DB_PASSPHRASE", &pass);
 
-    // basepoint.json stores the seal + the random salt (needed to re-verify the
-    // seal) + the database encryption key. It deliberately does NOT store the
-    // directives or any hint of them.
+    // basepoint.json stores the seal, the seal's salt and the database key's salt. It
+    // stores neither the database key nor the directives or any hint of them.
     let bp_json = json!({
         "version": 2,
         "seal": seal,
@@ -187,7 +226,8 @@ async fn run_init() -> Result<(), String> {
         "seal_alg": "HKDF-SHA256/HMAC-SHA256",
         "created_at": Utc::now().to_rfc3339(),
         "endpoint": endpoint,
-        "db_key": db_key_hex,
+        "db_key_salt": db_salt_hex,
+        "db_key_kdf": "argon2id-v19-m19456-t2-p1",
     });
     fs::write(
         basepoint_path(),
@@ -285,4 +325,35 @@ pub fn load_endpoint_from_bp() -> String {
         }
     }
     "http://localhost:11434".to_string()
+}
+
+#[cfg(test)]
+mod key_tests {
+    use super::derive_db_key;
+
+    #[test]
+    fn same_passphrase_and_salt_give_the_same_key() {
+        let a = derive_db_key("correct horse battery", b"0123456789abcdef").unwrap();
+        let b = derive_db_key("correct horse battery", b"0123456789abcdef").unwrap();
+        assert_eq!(a, b);
+        assert_eq!(a.len(), 64);
+    }
+
+    #[test]
+    fn wrong_passphrase_or_salt_gives_a_different_key() {
+        let a = derive_db_key("correct horse battery", b"0123456789abcdef").unwrap();
+        assert_ne!(
+            a,
+            derive_db_key("correct horse batterz", b"0123456789abcdef").unwrap()
+        );
+        assert_ne!(
+            a,
+            derive_db_key("correct horse battery", b"fedcba9876543210").unwrap()
+        );
+    }
+
+    #[test]
+    fn short_passphrase_is_refused() {
+        assert!(derive_db_key("short", b"0123456789abcdef").is_err());
+    }
 }
