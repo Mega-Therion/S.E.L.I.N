@@ -16,13 +16,12 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "Apache-2.0",
   "bugs": {
     "url": "https://github.com/Mega-Therion/S.E.L.I.N/issues"
   },
   "homepage": "https://github.com/Mega-Therion/S.E.L.I.N#readme",
   "dependencies": {
-    "@vercel/connect": "^0.6.1",
     "ai": "^7.0.55",
     "eve": "^0.71.0"
   }
