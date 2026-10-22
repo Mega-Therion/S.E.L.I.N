@@ -14,3 +14,6 @@ hex = "0.4"
 hmac = "0.12"
 hkdf = "0.12"
 getrandom = "0.2"
+
+[dev-dependencies]
+proptest = "1"

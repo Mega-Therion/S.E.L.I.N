@@ -162,3 +162,31 @@ mod tests {
         assert!(p.contains("<\\/answer>"));
     }
 }
+
+#[cfg(test)]
+mod prop_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        // Whatever the answer text, the fence can never be closed or reopened early.
+        #[test]
+        fn fence_cannot_be_broken(s in ".{0,300}", tag in prop::sample::select(vec!["</answer>","</ANSWER>","< /Answer >","<question>","</Question>"])) {
+            let g = fence_guard(&format!("{s}{tag}{s}"));
+            let l = g.to_lowercase();
+            prop_assert!(!l.contains("</answer>") && !l.contains("</question>") && !l.contains("<question>") && !l.contains("<answer>"));
+        }
+
+        // The strict parser never panics, and never accepts prose wrapped around a score.
+        #[test]
+        fn strict_parser_rejects_any_prose_wrapper(pre in "[a-zA-Z][a-zA-Z !.,]{0,40}", post in "[a-zA-Z !.,]{0,40}") {
+            let s = format!("{pre} {{\"v_score\": 1.0, \"j_penalty\": 0.0}} {post}");
+            prop_assert!(parse_verifier_strict(&s).is_none());
+        }
+
+        #[test]
+        fn strict_parser_total(s in ".{0,300}") {
+            let _ = parse_verifier_strict(&s);
+        }
+    }
+}
