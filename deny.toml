@@ -1,0 +1,19 @@
+# cargo-deny policy (work order item 8). Licence checking is left to item 9
+# (one licence for the project); this file gates advisories, bans and sources.
+[graph]
+all-features = false
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+# Internal path dependencies (archon_kernel) have no version; that is not a wildcard registry dep.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

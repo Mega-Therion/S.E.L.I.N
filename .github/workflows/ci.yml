@@ -53,3 +53,31 @@ jobs:
           file: ./Dockerfile
           push: false
           tags: archon-selin:ci-latest
+
+  node:
+    name: Node Edge Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Run node tests
+        run: npm test
+
+  supply-chain:
+    name: Dependency Audit (cargo audit + cargo deny)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install cargo-audit and cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit,cargo-deny
+      - name: cargo audit (RustSec advisories)
+        run: cargo audit
+      - name: cargo deny (advisories, bans, sources)
+        run: cargo deny check advisories bans sources
