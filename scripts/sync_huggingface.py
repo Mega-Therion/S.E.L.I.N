@@ -15,14 +15,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 def get_token():
     token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
     if not token:
-        env_file = Path.home() / ".chyren" / "one-true.env"
-        if env_file.exists():
-            for line in env_file.read_text().splitlines():
-                if line.startswith("HF_TOKEN=") or line.startswith("HUGGINGFACE_TOKEN="):
-                    token = line.split("=", 1)[1].strip()
-                    break
-    if not token:
-        raise RuntimeError("HF_TOKEN not found in environment or ~/.chyren/one-true.env")
+        raise RuntimeError(
+            "HF_TOKEN not found in environment. "
+            "Export HF_TOKEN=<your-token> before running this script."
+        )
     return token
 
 def generate_hf_readme():

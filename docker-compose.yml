@@ -12,6 +12,9 @@ services:
     environment:
       MODEL_ENDPOINT: http://local-llm:11434
       ADCCL_THRESHOLD: "0.7071"
+      # REQUIRED: set an API key — the server refuses non-loopback binds without one.
+      # Pass via .env file or docker secret: ARCHON_API_KEY=<your-secret>
+      ARCHON_API_KEY: "${ARCHON_API_KEY:?ARCHON_API_KEY must be set to run selin-archon in network mode}"
       # The verifier must be independent of the generator (a different model or endpoint),
       # or governance refuses. Example: VERIFIER_MODEL: "qwen2.5:7b". To accept self-verification
       # knowingly (receipts marked self-verified), set SELIN_ALLOW_SELF_VERIFY: "1".
@@ -19,6 +22,10 @@ services:
       # MVPC_BIN: /usr/local/bin/mvpc
     volumes:
       - selin_data:/data/selin
+    # Read-only container filesystem; only the data volume is writable.
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
     ports:
       - "127.0.0.1:8080:8080"
     # Must listen on all interfaces inside the container network
@@ -32,8 +39,9 @@ services:
     restart: unless-stopped
 
   # One-shot: pull the default model so the user doesn't have to docker exec.
+  # Pinned to the same digest as local-llm to prevent tag drift.
   model-pull:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.6.1@sha256:5592e1b526d0081b9768c6122338d2cf79c4192f0aa34909dd2f97398295ca9d
     depends_on:
       local-llm:
         condition: service_healthy
@@ -44,9 +52,10 @@ services:
     command: ['echo "Pulling $${SELIN_MODEL}…"; ollama pull "$${SELIN_MODEL}"']
     restart: "no"
 
-  # Local LLM node (Ollama)
+  # Local LLM node (Ollama) — pinned image digest for supply-chain safety.
+  # To update: docker pull ollama/ollama:0.6.1 and verify the new digest.
   local-llm:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.6.1@sha256:5592e1b526d0081b9768c6122338d2cf79c4192f0aa34909dd2f97398295ca9d
     container_name: selin-local-llm
     volumes:
       - ollama_data:/root/.ollama

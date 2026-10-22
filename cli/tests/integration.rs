@@ -399,3 +399,25 @@ async fn high_risk_signoff_is_redeemed_not_trusted_end_to_end() {
     assert_eq!(calls.load(SeqCst), before);
     std::env::remove_var("SELIN_SIGNOFF_KEY");
 }
+
+/// Item 6: the real binary refuses a network bind with no API key (exits 1 before listening).
+#[test]
+fn serve_refuses_network_bind_without_api_key() {
+    let home = std::env::temp_dir().join(format!("selin-bind-{}", std::process::id()));
+    std::fs::create_dir_all(&home).unwrap();
+    let out = selin()
+        .args(["serve", "--bind", "0.0.0.0", "--port", "0"])
+        .env("HOME", &home)
+        .env_remove("ARCHON_API_KEY")
+        .env_remove("SELIN_API_KEY")
+        .output()
+        .expect("run selin");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "must exit 1, got {:?}",
+        out.status
+    );
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("Refusing to bind"), "stderr: {err}");
+}

@@ -9,13 +9,13 @@
   <a href="https://x.com/_chyrho_"><img src="https://img.shields.io/badge/X-@__ChyRho__-000000?style=flat-square&logo=x&logoColor=white" alt="X"></a>
 </p>
 
-Local-first AI governance node and ARCHON runtime. Encrypted state. Fail-closed gates. Formal artifact checks, when wanted, go through a local MVPC-X install. This repository does not itself run a Lean kernel.
+Local-first AI governance node and ARCHON runtime. Passphrase-derived encrypted store. Fail-closed gates. Formal artifact checks, when wanted, go through a local MVPC-X install. This repository does not itself run a Lean kernel.
 
 ![SELIN Local-First Governance Boundary](docs/visuals/selin-local-governance.svg)
 
 ## System Role & Mission
 
-`chyren-selin` is the open, distributable build of the Chyren stack. `chyren-aeon` is the private core. SELIN is meant to run on the user's own hardware: local-first, no telemetry, encrypted state, and fail-closed capability gates.
+`chyren-selin` is the open, distributable build of the Chyren stack. `chyren-aeon` is the private core. SELIN is meant to run on the user's own hardware: local-first, no telemetry, passphrase-derived encrypted SQLite store, and fail-closed capability gates.
 
 ## What is actually checked
 
@@ -27,7 +27,7 @@ The public site is [chyren-selin-chyrho.vercel.app](https://chyren-selin-chyrho.
 
 - **Local boundary**: All personal memory, cryptographic keys, and raw conversation history reside exclusively on local SQLite/encrypted storage.
 - **Fail-Closed Execution**: If an external connector, model, or policy evaluator is unreachable or degraded, SELIN fails closed: actions are refused rather than executed without oversight.
-- **Strict Connector Capabilities**: External tools operate under fixed capability envelopes (`read_only`, `draft_only`, `write_bounded`). External writes always require local policy approval and an immutable receipt.
+- **Strict Connector Capabilities**: External tools operate under fixed capability envelopes (`read_only`, `draft_only`, `write_bounded`). External writes always require local policy approval and a stored, hash-chained receipt.
 
 ## Architecture
 
@@ -54,6 +54,23 @@ cargo test --locked
 # Verify local Node services
 npm test
 ```
+
+## Claims and their tests
+
+Each claim below is backed by a test that fails when the named guard is removed.
+
+| Claim | Test name | Command |
+|---|---|---|
+| Tier-1 veto is never overridable by any sign-off | `severe_threat_is_refused_with_every_signoff` | `cargo test -p archon_kernel` |
+| High-risk sign-off is a prompt-bound single-use HMAC token | `token_is_bound_to_prompt_and_key_and_single_use` | `cargo test -p archon_kernel` |
+| Verifier cannot be the same endpoint as the generator (by default) | `test_verifier_must_be_independent` | `cargo test --test integration` |
+| No output without a stored receipt | `passing_answer_is_withheld_when_receipt_cannot_be_stored` | `cargo test --test integration` |
+| Hash-chained audit detects tampering | `edited_row_is_caught`, `deleted_row_is_caught` | `cargo test -p selin` |
+| Database key is derived from passphrase (Argon2id); never stored | `same_passphrase_and_salt_give_the_same_key` | `cargo test -p selin` |
+| Tier-1 screen normalises invisible characters before keyword match | `invisible_characters_do_not_hide_a_severe_phrase` | `cargo test -p archon_kernel` |
+| Non-loopback bind without API key is refused (the real binary exits 1) | `serve_refuses_network_bind_without_api_key` | `cargo test --test integration` |
+| A high-risk sign-off is redeemed, not trusted, end to end | `high_risk_signoff_is_redeemed_not_trusted_end_to_end` | `cargo test --test integration` |
+| Prompt sanitizer strips zero-width injection | `test_sanitize_prompt_strips_zero_width_injection` | `cargo test --test server_tests` |
 
 ## How this was built
 

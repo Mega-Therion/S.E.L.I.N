@@ -5,14 +5,17 @@
 //!   POST /v1/govern         → govern a prompt, returns the ADCCL verdict
 //!   GET  /v1/audit/:run_id  → the stored proof trace for a run
 //!
-//! Default bind is 127.0.0.1 (local-first). Docker should pass --bind 0.0.0.0.
+//! Default bind is 127.0.0.1 (local-first). Binding a non-loopback address
+//! without an API key is a hard error — see `serve_bind`.
 
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::extract::Request;
 use axum::{
     extract::{DefaultBodyLimit, Path, State},
     http::{HeaderMap, StatusCode},
+    middleware::{self, Next},
     routing::{get, post},
     Json, Router,
 };
@@ -20,6 +23,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::sync::Semaphore;
+use uuid::Uuid;
 
 use crate::governance::{govern, GovernConfig};
 use crate::init::open_myelin;
@@ -35,6 +39,28 @@ struct AppState {
 const MAX_CONCURRENT: usize = 8;
 const GOVERN_TIMEOUT_SECS: u64 = 120;
 pub const MAX_PROMPT_BYTES: usize = 32 * 1024; // 32KB
+
+/// Returns true when `bind` is a loopback-only address.
+pub fn is_loopback(bind: &str) -> bool {
+    matches!(bind, "127.0.0.1" | "::1" | "[::1]" | "localhost")
+}
+
+/// True when a bind must be refused: non-loopback with no API key. `serve_bind` calls this.
+pub fn non_loopback_without_key_is_refused(bind: &str, api_key: Option<String>) -> bool {
+    !is_loopback(bind) && api_key.is_none()
+}
+
+/// Middleware: attach a unique X-Request-Id to every response.
+async fn request_id_middleware(mut req: Request, next: Next) -> axum::response::Response {
+    let id = Uuid::new_v4().to_string();
+    req.extensions_mut().insert(id.clone());
+    let mut resp = next.run(req).await;
+    resp.headers_mut().insert(
+        "X-Request-Id",
+        id.parse().expect("uuid is always a valid header value"),
+    );
+    resp
+}
 
 /// Sanitize input prompt: validates non-empty, checks byte length <= 32KB,
 /// strips zero-width and invisible unicode control code points.
@@ -84,6 +110,9 @@ pub async fn serve(port: u16) {
 }
 
 /// Build and run the server on `bind:port`.
+///
+/// Binding a non-loopback interface without an API key is refused: the
+/// governance API must not be exposed on a network without authentication.
 pub async fn serve_bind(bind: &str, port: u16, cli_api_key: Option<String>) {
     let endpoint = crate::init::load_endpoint_from_bp();
     let client = Client::builder()
@@ -97,6 +126,16 @@ pub async fn serve_bind(bind: &str, port: u16, cli_api_key: Option<String>) {
         .or_else(|| std::env::var("SELIN_API_KEY").ok())
         .filter(|k| !k.trim().is_empty());
 
+    if non_loopback_without_key_is_refused(bind, api_key.clone()) {
+        eprintln!(
+            "[error] Refusing to bind {bind}:{port} on a non-loopback interface without an API key."
+        );
+        eprintln!(
+            "        Set ARCHON_API_KEY (or SELIN_API_KEY) before starting the server in network mode."
+        );
+        std::process::exit(1);
+    }
+
     let state = Arc::new(AppState {
         client,
         endpoint: endpoint.clone(),
@@ -109,18 +148,15 @@ pub async fn serve_bind(bind: &str, port: u16, cli_api_key: Option<String>) {
         .route("/health", get(health))
         .route("/v1/govern", post(govern_handler))
         .route("/v1/audit/:run_id", get(audit_handler))
+        .layer(middleware::from_fn(request_id_middleware))
         .layer(DefaultBodyLimit::max(64 * 1024)) // 64KB HTTP request body limit
         .with_state(state);
 
     let addr = format!("{bind}:{port}");
-    if bind == "0.0.0.0" || bind == "::" {
-        eprintln!("  [warn] Binding {addr} exposes the governance API on all interfaces. ");
-        eprintln!("         Prefer 127.0.0.1 unless this is an intentional deployment.");
-    }
     if api_key.is_some() {
         println!("  [auth] API Key authentication active (Bearer / X-API-Key).");
     } else {
-        println!("  [warn] Running without API Key authentication. Set ARCHON_API_KEY for network security.");
+        println!("  [auth] Loopback-only mode — no API key required on 127.0.0.1.");
     }
     println!("ARCHON server listening on http://{addr}");
     println!("  endpoint={endpoint}  model={model}  max_concurrent={MAX_CONCURRENT}");
@@ -137,26 +173,27 @@ fn check_auth(
 ) -> Result<(), (StatusCode, Json<Value>)> {
     let expected = match expected_key {
         Some(ref key) => key,
-        None => return Ok(()), // No auth configured
+        None => return Ok(()), // Loopback-only mode, no key configured
     };
 
     let auth_header = headers.get("authorization").and_then(|v| v.to_str().ok());
     let x_api_key = headers.get("x-api-key").and_then(|v| v.to_str().ok());
 
-    let is_valid = if let Some(header) = auth_header {
-        if header.starts_with("Bearer ") {
-            header
-                .strip_prefix("Bearer ")
-                .map(|k| k.trim() == expected)
-                .unwrap_or(false)
-        } else {
-            header.trim() == expected
-        }
+    // Constant-time comparison of the presented key (Bearer, raw Authorization, or X-API-Key).
+    let candidate = if let Some(header) = auth_header {
+        header
+            .strip_prefix("Bearer ")
+            .map(str::trim)
+            .unwrap_or_else(|| header.trim())
+            .to_string()
     } else if let Some(key) = x_api_key {
-        key.trim() == expected
+        key.trim().to_string()
     } else {
-        false
+        String::new()
     };
+
+    use subtle::ConstantTimeEq;
+    let is_valid = candidate.as_bytes().ct_eq(expected.as_bytes()).into();
 
     if is_valid {
         Ok(())
