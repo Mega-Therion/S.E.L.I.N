@@ -10,6 +10,8 @@ yanked = "deny"
 [bans]
 multiple-versions = "allow"
 wildcards = "deny"
+# Internal path dependencies (archon_kernel) have no version; that is not a wildcard registry dep.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"
