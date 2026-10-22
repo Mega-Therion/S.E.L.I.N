@@ -7,7 +7,7 @@
 //! store. It never self-scores and fails closed (see `archon_kernel::verifier`).
 
 use archon_kernel::{
-    build_verifier_prompt, classify_prompt, extract_scores, AdaptiveResilientFormatter, AdcclGate,
+    build_verifier_prompt, classify_prompt, extract_scores, parse_verifier_strict, AdcclGate,
     SignOffLedger, ThreeTierGate, FAIL_CLOSED,
 };
 use chrono::Utc;
@@ -30,14 +30,40 @@ pub struct GovernConfig {
 }
 
 impl GovernConfig {
-    /// Helper to resolve verifier endpoint (env VERIFIER_ENDPOINT or fallback to primary endpoint)
-    pub fn verifier_endpoint(&self) -> String {
-        std::env::var("VERIFIER_ENDPOINT").unwrap_or_else(|_| self.endpoint.clone())
+    /// Resolve the verifier (work order item 2). The verifier must be independent of the
+    /// generator: a different endpoint or a different model. If VERIFIER_ENDPOINT and
+    /// VERIFIER_MODEL leave it identical to the generator, governance refuses, unless the
+    /// operator sets SELIN_ALLOW_SELF_VERIFY=1, in which case the receipt says "self-verified".
+    /// Returns (endpoint, model, self_verified) or an error string.
+    pub fn verifier(&self) -> Result<(String, String, bool), String> {
+        let ep = std::env::var("VERIFIER_ENDPOINT").unwrap_or_else(|_| self.endpoint.clone());
+        let model = std::env::var("VERIFIER_MODEL").unwrap_or_else(|_| self.model.clone());
+        let same =
+            ep.trim_end_matches('/') == self.endpoint.trim_end_matches('/') && model == self.model;
+        if !same {
+            return Ok((ep, model, false));
+        }
+        if std::env::var("SELIN_ALLOW_SELF_VERIFY")
+            .map(|v| v == "1")
+            .unwrap_or(false)
+        {
+            return Ok((ep, model, true));
+        }
+        Err("verifier is the generator (set VERIFIER_ENDPOINT or VERIFIER_MODEL to an independent model, \
+             or SELIN_ALLOW_SELF_VERIFY=1 to accept a self-verified receipt)"
+            .to_string())
     }
+}
 
-    /// Helper to resolve verifier model (env VERIFIER_MODEL or fallback to primary model)
-    pub fn verifier_model(&self) -> String {
-        std::env::var("VERIFIER_MODEL").unwrap_or_else(|_| self.model.clone())
+/// The ADCCL gate, honoring ADCCL_THRESHOLD but never below the chiral floor 1/√2.
+fn gate_from_env() -> AdcclGate {
+    let floor = std::f64::consts::FRAC_1_SQRT_2;
+    match std::env::var("ADCCL_THRESHOLD")
+        .ok()
+        .and_then(|s| s.trim().parse::<f64>().ok())
+    {
+        Some(t) if t.is_finite() && t <= 1.0 => AdcclGate::new(t.max(floor)),
+        _ => AdcclGate::default(),
     }
 }
 
@@ -71,7 +97,7 @@ fn signoff_key() -> Option<Vec<u8>> {
 pub async fn govern(client: &Client, cfg: &GovernConfig, prompt: &str) -> GovernOutcome {
     let run_id = Uuid::new_v4().to_string();
     let prompt_hash = hex::encode(Sha256::digest(prompt.as_bytes()));
-    let gate = AdcclGate::default();
+    let gate = gate_from_env();
 
     // 1. Three-tier action gate — before any model call.
     let (risk_score, illegal_threat) = classify_prompt(prompt);
@@ -113,15 +139,19 @@ pub async fn govern(client: &Client, cfg: &GovernConfig, prompt: &str) -> Govern
 
     // 3. Independent verification (separate, injection-resistant call).
     let verifier_prompt = build_verifier_prompt(prompt, &answer);
-    let v_endpoint = cfg.verifier_endpoint();
-    let v_model = cfg.verifier_model();
+    let (v_endpoint, v_model, self_verified) = match cfg.verifier() {
+        Ok(x) => x,
+        Err(note) => return fail_closed(&run_id, &prompt_hash, &gate, cfg, tier, &note).await,
+    };
+    let label = if self_verified {
+        "self-verified"
+    } else {
+        "verifier-scored"
+    };
     let (v, j, source, verifier_unavail) =
         match call_model(client, &v_endpoint, &v_model, &verifier_prompt).await {
-            Ok(vraw) => match AdaptiveResilientFormatter::parse_and_repair_json(&vraw)
-                .ok()
-                .and_then(|json| extract_scores(&json))
-            {
-                Some((v, j)) => (v, j, format!("verifier-scored ({v_model})"), false),
+            Ok(vraw) => match parse_verifier_strict(&vraw).and_then(|json| extract_scores(&json)) {
+                Some((v, j)) => (v, j, format!("{label} ({v_model})"), false),
                 None => (
                     FAIL_CLOSED.0,
                     FAIL_CLOSED.1,
