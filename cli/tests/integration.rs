@@ -332,3 +332,70 @@ async fn passing_answer_is_released_with_a_chained_receipt() {
     std::env::remove_var("SELIN_DB_PASSPHRASE");
     let _ = std::fs::remove_dir_all(&home);
 }
+
+/// Item 1, wiring layer (found by sabotage, BLK-610): the gate's own unit tests passed even
+/// when `govern` accepted any non-empty token without redeeming it. These drive the real
+/// pipeline: a high-risk prompt is refused without a valid HMAC sign-off, permitted once with
+/// one, and refused again on replay.
+#[tokio::test]
+async fn high_risk_signoff_is_redeemed_not_trusted_end_to_end() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let _env = ENV_LOCK.lock().await;
+    let home = std::env::temp_dir().join(format!("selin-signoff-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(&home).unwrap();
+    std::env::set_var("HOME", &home);
+    let key = [7u8; 32];
+    std::env::set_var("SELIN_SIGNOFF_KEY", hex::encode(key));
+
+    // drop table + rm -rf + delete all = 0.75 risk, above 0.7, not a Tier-1 threat.
+    let prompt = "drop table users, rm -rf the cache, delete all backups";
+    let hash = hex::encode(<sha2::Sha256 as sha2::Digest>::digest(prompt.as_bytes()));
+    let good = archon_kernel::signoff_token(&key, &hash);
+    let (port, calls) = stub_server("{\"v_score\": 0.95, \"j_penalty\": 0.05}").await;
+    let client = reqwest::Client::new();
+    let run = |tok: Option<String>| {
+        let mut cfg = stub_cfg(port);
+        cfg.signoff_token = tok;
+        let client = client.clone();
+        async move { selin::governance::govern(&client, &cfg, prompt).await }
+    };
+
+    for tok in [
+        None,
+        Some("yes".to_string()),
+        Some("ab".repeat(32)),
+        Some(archon_kernel::signoff_token(&key, "another-prompt")),
+    ] {
+        let out = run(tok.clone()).await;
+        assert_eq!(
+            out.tier, "Tier2Warning",
+            "token {tok:?} must not lift the gate"
+        );
+        assert!(out.output.is_none());
+    }
+    assert_eq!(
+        calls.load(SeqCst),
+        0,
+        "a refused high-risk prompt must never reach the model"
+    );
+
+    let out = run(Some(good.clone())).await;
+    assert_eq!(
+        out.tier, "Tier3AccountabilityLock",
+        "a valid sign-off is accepted"
+    );
+    assert!(
+        calls.load(SeqCst) > 0,
+        "the permitted prompt reaches the model"
+    );
+
+    let before = calls.load(SeqCst);
+    let out = run(Some(good)).await;
+    assert_eq!(
+        out.tier, "Tier2Warning",
+        "a spent sign-off cannot be replayed"
+    );
+    assert_eq!(calls.load(SeqCst), before);
+    std::env::remove_var("SELIN_SIGNOFF_KEY");
+}
