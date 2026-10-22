@@ -405,19 +405,28 @@ async fn high_risk_signoff_is_redeemed_not_trusted_end_to_end() {
 fn serve_refuses_network_bind_without_api_key() {
     let home = std::env::temp_dir().join(format!("selin-bind-{}", std::process::id()));
     std::fs::create_dir_all(&home).unwrap();
-    let out = selin()
+    let mut child = selin()
         .args(["serve", "--bind", "0.0.0.0", "--port", "0"])
         .env("HOME", &home)
         .env_remove("ARCHON_API_KEY")
         .env_remove("SELIN_API_KEY")
-        .output()
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .expect("run selin");
-    assert_eq!(
-        out.status.code(),
-        Some(1),
-        "must exit 1, got {:?}",
-        out.status
-    );
-    let err = String::from_utf8_lossy(&out.stderr);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let status = loop {
+        if let Some(s) = child.try_wait().unwrap() {
+            break s;
+        }
+        if std::time::Instant::now() > deadline {
+            let _ = child.kill();
+            panic!("server kept running on 0.0.0.0 with no API key");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    assert_eq!(status.code(), Some(1), "must exit 1, got {status:?}");
+    let mut err = String::new();
+    std::io::Read::read_to_string(&mut child.stderr.take().unwrap(), &mut err).unwrap();
     assert!(err.contains("Refusing to bind"), "stderr: {err}");
 }
