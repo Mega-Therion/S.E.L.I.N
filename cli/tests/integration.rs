@@ -74,7 +74,7 @@ async fn test_verifier_down_rejects() {
     let cfg = selin::governance::GovernConfig {
         endpoint: format!("http://127.0.0.1:{port}"),
         model: "generator-model-v1".to_string(),
-        signoff_phrase: None,
+        signoff_token: None,
     };
 
     // Set verifier endpoint to an unreachable port (port 9 discard)
@@ -105,7 +105,7 @@ fn test_verifier_model_isolation() {
     let cfg = selin::governance::GovernConfig {
         endpoint: "http://127.0.0.1:11434".to_string(),
         model: "llama3:latest".to_string(),
-        signoff_phrase: None,
+        signoff_token: None,
     };
 
     // By default without override

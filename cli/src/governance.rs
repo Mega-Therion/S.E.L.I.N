@@ -8,7 +8,7 @@
 
 use archon_kernel::{
     build_verifier_prompt, classify_prompt, extract_scores, AdaptiveResilientFormatter, AdcclGate,
-    ThreeTierGate, Tier3SignOff, FAIL_CLOSED,
+    SignOffLedger, ThreeTierGate, FAIL_CLOSED,
 };
 use chrono::Utc;
 use reqwest::Client;
@@ -24,8 +24,9 @@ use crate::init::open_myelin;
 pub struct GovernConfig {
     pub endpoint: String,
     pub model: String,
-    /// Optional Tier-3 sovereign sign-off phrase (binds accountability).
-    pub signoff_phrase: Option<String>,
+    /// Optional sign-off TOKEN for a high-risk prompt: hex HMAC-SHA256 of the prompt hash under the
+    /// operator key (SELIN_SIGNOFF_KEY). A phrase or word is never accepted (work order item 1).
+    pub signoff_token: Option<String>,
 }
 
 impl GovernConfig {
@@ -57,6 +58,16 @@ pub struct GovernOutcome {
 }
 
 /// Run the full governance pipeline for `prompt`.
+/// Spent sign-off tokens for this process (single use).
+static SIGNOFF_LEDGER: std::sync::LazyLock<std::sync::Mutex<SignOffLedger>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(SignOffLedger::default()));
+
+/// The operator sign-off key, hex in SELIN_SIGNOFF_KEY. Absent or invalid means no sign-off can validate.
+fn signoff_key() -> Option<Vec<u8>> {
+    let k = hex::decode(std::env::var("SELIN_SIGNOFF_KEY").ok()?.trim()).ok()?;
+    (k.len() >= 32).then_some(k)
+}
+
 pub async fn govern(client: &Client, cfg: &GovernConfig, prompt: &str) -> GovernOutcome {
     let run_id = Uuid::new_v4().to_string();
     let prompt_hash = hex::encode(Sha256::digest(prompt.as_bytes()));
@@ -64,12 +75,14 @@ pub async fn govern(client: &Client, cfg: &GovernConfig, prompt: &str) -> Govern
 
     // 1. Three-tier action gate — before any model call.
     let (risk_score, illegal_threat) = classify_prompt(prompt);
-    let sign_off = cfg.signoff_phrase.as_ref().map(|p| Tier3SignOff {
-        human_ack_warning: true,
-        human_accept_consequences: true,
-        sovereign_phrase_hash: hex::encode(Sha256::digest(p.as_bytes())),
-    });
-    let action = ThreeTierGate::evaluate_action(risk_score, illegal_threat, sign_off.as_ref());
+    let signoff_valid = match (&cfg.signoff_token, signoff_key()) {
+        (Some(tok), Some(key)) => SIGNOFF_LEDGER
+            .lock()
+            .map(|mut l| l.redeem(&key, &prompt_hash, tok))
+            .unwrap_or(false),
+        _ => false,
+    };
+    let action = ThreeTierGate::evaluate_action(risk_score, illegal_threat, signoff_valid);
     let tier = format!("{:?}", action.level);
     if !action.permitted {
         let reason = format!("Action blocked at {:?}", action.level);

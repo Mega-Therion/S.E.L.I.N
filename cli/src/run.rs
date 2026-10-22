@@ -35,7 +35,7 @@ pub async fn execute_run(prompt: &str) {
     let cfg = GovernConfig {
         endpoint,
         model,
-        signoff_phrase: std::env::var("SELIN_SOVEREIGN_SIGNOFF")
+        signoff_token: std::env::var("SELIN_SIGNOFF_TOKEN")
             .ok()
             .filter(|s| !s.trim().is_empty()),
     };
