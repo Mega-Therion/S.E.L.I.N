@@ -86,7 +86,7 @@ selin verify-artifact path/to/File.lean --run-id <adccl-run-id>
 |-------|--------|
 | χ pass / reject | VERIFIED / CONDITIONAL / REJECTED / UNVERIFIED |
 | fail-closed generative | SYSTEM_INTEGRITY_FAILURE, KERNEL_NEVER_RAN |
-| `SELIN_SOVEREIGN_SIGNOFF` | `mvpc attest --signer` |
+| `SELIN_SIGNOFF_TOKEN` | `mvpc attest --signer` (now a prompt-bound HMAC token, not a phrase) |
 | myelin `adccl_runs` | witness JSON / claim JSON |
 
 Store **both**. A fluent model answer is not a kernel proof.

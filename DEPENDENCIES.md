@@ -35,5 +35,6 @@ selin verify-artifact ./some/File.lean
 | `MODEL_ENDPOINT` | LLM for generative govern |
 | `MVPC_BIN` | Path to MVPC-X CLI |
 | `SELIN_REQUIRE_MVPC` | If set, treat missing/failing MVPC as hard failure where wired |
-| `SELIN_SOVEREIGN_SIGNOFF` | Tier-3 accountability phrase |
+| `SELIN_SIGNOFF_KEY` | Operator sign-off key (hex, ≥32 bytes). Without it, no high-risk action can be signed off. |
+| `SELIN_SIGNOFF_TOKEN` | Single-use sign-off for one prompt: hex HMAC-SHA256(key, "selin-signoff-v1|" + prompt SHA-256). Tier-1 threats are never overridable. |
 | `SELIN_FORCE_REINIT` | Allow identity re-init |

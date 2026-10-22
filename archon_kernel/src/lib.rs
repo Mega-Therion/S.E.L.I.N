@@ -20,5 +20,8 @@ pub use hsm_shamir::{
 };
 pub use provider::AdaptiveResilientFormatter;
 pub use risk::classify_prompt;
-pub use three_tier_gate::{ActionEvaluation, ActionSecurityLevel, ThreeTierGate, Tier3SignOff};
+pub use three_tier_gate::{
+    signoff_token, ActionEvaluation, ActionSecurityLevel, SignOffLedger, ThreeTierGate,
+    SIGNOFF_RISK_THRESHOLD,
+};
 pub use verifier::{build_verifier_prompt, extract_scores, FAIL_CLOSED};

@@ -201,7 +201,7 @@ async fn govern_handler(
     let cfg = GovernConfig {
         endpoint: state.endpoint.clone(),
         model: state.model.clone(),
-        signoff_phrase: req.signoff.clone(),
+        signoff_token: req.signoff.clone(),
     };
     let fut = govern(&state.client, &cfg, &clean_prompt);
     match tokio::time::timeout(Duration::from_secs(GOVERN_TIMEOUT_SECS), fut).await {
