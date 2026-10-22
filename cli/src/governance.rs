@@ -113,8 +113,11 @@ pub async fn govern(client: &Client, cfg: &GovernConfig, prompt: &str) -> Govern
     if !action.permitted {
         let reason = format!("Action blocked at {:?}", action.level);
         let report = gate.evaluate(FAIL_CLOSED.0, FAIL_CLOSED.1);
-        persist(&run_id, &prompt_hash, &report, &cfg.endpoint, &reason).await;
-        return outcome(run_id, &report, tier, "three-tier-gate".into(), None);
+        let src = match persist(&run_id, &prompt_hash, &report, &cfg.endpoint, &reason).await {
+            Ok(()) => "three-tier-gate".to_string(),
+            Err(e) => format!("three-tier-gate; receipt not stored: {e}"),
+        };
+        return outcome(run_id, &report, tier, src, None);
     }
 
     // 2. Generate the answer (clean prompt — no self-scoring).
@@ -173,7 +176,17 @@ pub async fn govern(client: &Client, cfg: &GovernConfig, prompt: &str) -> Govern
         report.passed = false;
         report.rejection_reason = Some("verifier_unavailable".to_string());
     }
-    persist(&run_id, &prompt_hash, &report, &cfg.endpoint, &answer).await;
+    let source = match persist(&run_id, &prompt_hash, &report, &cfg.endpoint, &answer).await {
+        Ok(()) => source,
+        Err(e) => {
+            // No receipt, no release.
+            if report.passed {
+                report.passed = false;
+                report.rejection_reason = Some("receipt_not_stored".to_string());
+            }
+            format!("{source}; receipt not stored: {e}")
+        }
+    };
     let output = report.passed.then(|| answer.trim().to_string());
     outcome(run_id, &report, tier, source, output)
 }
@@ -187,14 +200,11 @@ async fn fail_closed(
     note: &str,
 ) -> GovernOutcome {
     let report = gate.evaluate(FAIL_CLOSED.0, FAIL_CLOSED.1);
-    persist(run_id, prompt_hash, &report, &cfg.endpoint, note).await;
-    outcome(
-        run_id.to_string(),
-        &report,
-        tier,
-        format!("fail-closed: {note}"),
-        None,
-    )
+    let src = match persist(run_id, prompt_hash, &report, &cfg.endpoint, note).await {
+        Ok(()) => format!("fail-closed: {note}"),
+        Err(e) => format!("fail-closed: {note}; receipt not stored: {e}"),
+    };
+    outcome(run_id.to_string(), &report, tier, src, None)
 }
 
 fn outcome(
@@ -265,13 +275,27 @@ pub async fn call_model(
 
 /// Persist a run to the myelin store (2000-char output). Runs on a blocking
 /// thread so the sync SQLite driver doesn't stall the async runtime.
+/// The chain hash of one receipt row: SHA-256 over the previous row's hash and every field.
+pub fn row_hash(prev: &str, fields: &[&str]) -> String {
+    let mut h = Sha256::new();
+    h.update(b"selin-receipt-v1");
+    h.update(prev.as_bytes());
+    for f in fields {
+        h.update([0x1f]);
+        h.update(f.as_bytes());
+    }
+    hex::encode(h.finalize())
+}
+
+/// Store the receipt for a run, hash-chained to the previous row. Returns an error if the
+/// receipt could not be stored; callers MUST NOT release output in that case (work order item 3).
 async fn persist(
     run_id: &str,
     prompt_hash: &str,
     report: &archon_kernel::VerificationReport,
     endpoint: &str,
     output: &str,
-) {
+) -> Result<(), String> {
     let (run_id, prompt_hash, endpoint) = (
         run_id.to_string(),
         prompt_hash.to_string(),
@@ -285,22 +309,35 @@ async fn persist(
         report.passed,
         report.rejection_reason.clone(),
     );
-    let res = tokio::task::spawn_blocking(move || -> Result<(), String> {
-        let conn = open_myelin().map_err(|e| format!("open_myelin failed: {e}"))?;
-        conn.execute(
-            "INSERT INTO adccl_runs (run_id, created_at, prompt_hash, v_score, j_penalty, chi_invariant, passed, rejection_reason, model_endpoint, raw_output_snippet)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let mut conn = open_myelin().map_err(|e| format!("open_myelin failed: {e}"))?;
+        let tx = conn.transaction().map_err(|e| format!("begin failed: {e}"))?;
+        let prev: String = tx
+            .query_row(
+                "SELECT COALESCE(row_hash, '') FROM adccl_runs ORDER BY rowid DESC LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or_default();
+        let created = Utc::now().to_rfc3339();
+        let passed_s = if passed { "1" } else { "0" };
+        let (vs, js, cs) = (format!("{v:.17e}"), format!("{j:.17e}"), format!("{chi:.17e}"));
+        let reason_s = reason.clone().unwrap_or_default();
+        let h = row_hash(
+            &prev,
+            &[&run_id, &created, &prompt_hash, &vs, &js, &cs, passed_s, &reason_s, &endpoint, &snippet],
+        );
+        tx.execute(
+            "INSERT INTO adccl_runs (run_id, created_at, prompt_hash, v_score, j_penalty, chi_invariant, passed, rejection_reason, model_endpoint, raw_output_snippet, prev_hash, row_hash)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             rusqlite::params![
-                run_id, Utc::now().to_rfc3339(), prompt_hash, v, j, chi,
-                if passed { 1 } else { 0 }, reason, endpoint, snippet,
+                run_id, created, prompt_hash, v, j, chi,
+                if passed { 1 } else { 0 }, reason, endpoint, snippet, prev, h,
             ],
         )
         .map_err(|e| format!("insert adccl_runs failed: {e}"))?;
-        Ok(())
+        tx.commit().map_err(|e| format!("commit failed: {e}"))
     })
-    .await;
-
-    if let Ok(Err(e)) = res {
-        eprintln!("[warn] myelin persist error: {e}");
-    }
+    .await
+    .map_err(|e| format!("persist task failed: {e}"))?
 }

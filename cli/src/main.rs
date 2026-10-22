@@ -28,8 +28,14 @@ enum Commands {
     Preflight,
     /// Govern a single prompt through ADCCL
     Run { prompt: String },
-    /// Render proof trace for an ADCCL run by run_id
-    Audit { run_id: String },
+    /// Render proof trace for an ADCCL run by run_id, or verify the whole receipt chain
+    Audit {
+        /// Run id to render
+        run_id: Option<String>,
+        /// Recompute every receipt's chain hash; exit non-zero on any broken, edited or deleted row
+        #[arg(long)]
+        verify_chain: bool,
+    },
     /// Start the ARCHON HTTP governance server
     Serve {
         /// Port to listen on
@@ -67,7 +73,21 @@ async fn main() {
         Commands::Init => init::execute_init().await,
         Commands::Preflight => preflight::execute_preflight().await,
         Commands::Run { prompt } => run::execute_run(&prompt).await,
-        Commands::Audit { run_id } => audit::execute_audit(&run_id),
+        Commands::Audit {
+            run_id,
+            verify_chain,
+        } => {
+            if verify_chain {
+                std::process::exit(audit::execute_verify_chain());
+            }
+            match run_id {
+                Some(id) => audit::execute_audit(&id),
+                None => {
+                    eprintln!("usage: selin audit <RUN_ID> | selin audit --verify-chain");
+                    std::process::exit(2);
+                }
+            }
+        }
         Commands::Serve {
             port,
             bind,

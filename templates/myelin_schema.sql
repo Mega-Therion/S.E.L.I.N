@@ -19,7 +19,9 @@ CREATE TABLE IF NOT EXISTS adccl_runs (
     passed      INTEGER NOT NULL,  -- 0 = false, 1 = true
     rejection_reason TEXT,
     model_endpoint TEXT NOT NULL,
-    raw_output_snippet TEXT
+    raw_output_snippet TEXT,
+    prev_hash   TEXT,   -- row_hash of the previous row ('' for the first): hash chain
+    row_hash    TEXT    -- SHA-256 over prev_hash and this row's fields (work order item 3)
 );
 
 CREATE TABLE IF NOT EXISTS preflight_log (

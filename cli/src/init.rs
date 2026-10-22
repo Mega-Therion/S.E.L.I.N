@@ -10,8 +10,15 @@ use serde_json::Value as JsonValue;
 
 /// Returns the SELIN data directory (~/.selin)
 pub fn selin_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    PathBuf::from(home).join(".selin")
+    // No /tmp fallback (work order item 3): an audit store in a world-writable,
+    // auto-cleaned directory is not an audit store.
+    match std::env::var("HOME") {
+        Ok(h) if !h.trim().is_empty() => PathBuf::from(h).join(".selin"),
+        _ => {
+            eprintln!("[error] HOME is not set; SELIN needs a private home directory for its audit store.");
+            std::process::exit(2);
+        }
+    }
 }
 
 pub fn myelin_db_path() -> PathBuf {
@@ -28,16 +35,41 @@ pub fn db_key() -> Option<String> {
         .map(|s| s.to_string())
 }
 
-/// Open the Myelin SQLite store, applying encryption if a key exists.
-/// Falls back to unencrypted for backward compatibility (no key in basepoint.json).
+/// Open the Myelin SQLite store. A database key is REQUIRED: there is no unencrypted
+/// fallback (work order item 3). The chain columns are added to older stores on open.
 pub fn open_myelin() -> Result<rusqlite::Connection, String> {
+    let key = db_key().ok_or_else(|| {
+        "no database key found; run `selin init` (SELIN never opens its audit store unencrypted)".to_string()
+    })?;
     let conn = rusqlite::Connection::open(myelin_db_path())
         .map_err(|e| format!("could not open {}: {e}", myelin_db_path().display()))?;
-    if let Some(key) = db_key() {
-        conn.pragma_update(None, "key", &key)
-            .map_err(|e| format!("could not apply database encryption: {e}"))?;
-    }
+    conn.pragma_update(None, "key", &key)
+        .map_err(|e| format!("could not apply database encryption: {e}"))?;
+    ensure_chain_columns(&conn)?;
     Ok(conn)
+}
+
+/// Add prev_hash / row_hash to an older adccl_runs table, if the table exists without them.
+pub fn ensure_chain_columns(conn: &rusqlite::Connection) -> Result<(), String> {
+    let mut stmt = match conn.prepare("PRAGMA table_info(adccl_runs)") {
+        Ok(s) => s,
+        Err(_) => return Ok(()),
+    };
+    let cols: Vec<String> = stmt
+        .query_map([], |r| r.get::<_, String>(1))
+        .map_err(|e| format!("could not read schema: {e}"))?
+        .filter_map(Result::ok)
+        .collect();
+    if cols.is_empty() {
+        return Ok(());
+    }
+    for c in ["prev_hash", "row_hash"] {
+        if !cols.iter().any(|x| x == c) {
+            conn.execute(&format!("ALTER TABLE adccl_runs ADD COLUMN {c} TEXT"), [])
+                .map_err(|e| format!("could not add {c}: {e}"))?;
+        }
+    }
+    Ok(())
 }
 
 pub fn basepoint_path() -> PathBuf {
