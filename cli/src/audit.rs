@@ -119,3 +119,134 @@ fn render_trace(r: &AuditRecord) {
     }
     println!("  └──────────────────────────────────────────────────────────────┘");
 }
+
+/// One stored receipt row, as needed to recompute its chain hash.
+pub struct ChainRow {
+    pub fields: Vec<String>,
+    pub prev_hash: String,
+    pub row_hash: String,
+}
+
+/// Check a sequence of rows (in insertion order). Returns Ok(n) or Err(index, reason).
+pub fn check_chain(rows: &[ChainRow]) -> Result<usize, (usize, String)> {
+    let mut prev = String::new();
+    for (i, r) in rows.iter().enumerate() {
+        if r.prev_hash != prev {
+            return Err((
+                i,
+                "prev_hash does not match the previous row (row deleted or reordered)".into(),
+            ));
+        }
+        let refs: Vec<&str> = r.fields.iter().map(String::as_str).collect();
+        let h = crate::governance::row_hash(&prev, &refs);
+        if h != r.row_hash {
+            return Err((i, "row_hash mismatch (row edited)".into()));
+        }
+        prev = r.row_hash.clone();
+    }
+    Ok(rows.len())
+}
+
+/// `selin audit --verify-chain`: recompute the receipt chain. Exit code 0 = intact.
+pub fn execute_verify_chain() -> i32 {
+    let conn = match open_myelin() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("  [error] {e}");
+            return 1;
+        }
+    };
+    let mut stmt = match conn.prepare(
+        "SELECT run_id, created_at, prompt_hash, v_score, j_penalty, chi_invariant, passed,
+                COALESCE(rejection_reason, ''), model_endpoint, COALESCE(raw_output_snippet, ''),
+                COALESCE(prev_hash, ''), COALESCE(row_hash, '')
+         FROM adccl_runs WHERE row_hash IS NOT NULL ORDER BY rowid",
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("  [error] query failed: {e}");
+            return 1;
+        }
+    };
+    let rows: Vec<ChainRow> = match stmt.query_map([], |r| {
+        let v: f64 = r.get(3)?;
+        let j: f64 = r.get(4)?;
+        let c: f64 = r.get(5)?;
+        let passed: i64 = r.get(6)?;
+        Ok(ChainRow {
+            fields: vec![
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                format!("{v:.17e}"),
+                format!("{j:.17e}"),
+                format!("{c:.17e}"),
+                if passed != 0 { "1".into() } else { "0".into() },
+                r.get(7)?,
+                r.get(8)?,
+                r.get(9)?,
+            ],
+            prev_hash: r.get(10)?,
+            row_hash: r.get(11)?,
+        })
+    }) {
+        Ok(it) => it.filter_map(Result::ok).collect(),
+        Err(e) => {
+            eprintln!("  [error] query failed: {e}");
+            return 1;
+        }
+    };
+    match check_chain(&rows) {
+        Ok(n) => {
+            println!("  Receipt chain intact: {n} rows verified.");
+            0
+        }
+        Err((i, why)) => {
+            eprintln!("  [BROKEN] receipt chain fails at row {i}: {why}");
+            1
+        }
+    }
+}
+
+#[cfg(test)]
+mod chain_tests {
+    use super::*;
+    use crate::governance::row_hash;
+
+    fn chain(n: usize) -> Vec<ChainRow> {
+        let mut prev = String::new();
+        (0..n)
+            .map(|i| {
+                let fields = vec![format!("run-{i}"), "t".into(), "p".into(), "x".into()];
+                let refs: Vec<&str> = fields.iter().map(String::as_str).collect();
+                let h = row_hash(&prev, &refs);
+                let row = ChainRow {
+                    fields,
+                    prev_hash: prev.clone(),
+                    row_hash: h.clone(),
+                };
+                prev = h;
+                row
+            })
+            .collect()
+    }
+
+    #[test]
+    fn intact_chain_verifies() {
+        assert_eq!(check_chain(&chain(5)), Ok(5));
+    }
+
+    #[test]
+    fn edited_row_is_caught() {
+        let mut c = chain(5);
+        c[2].fields[3] = "tampered".into();
+        assert!(matches!(check_chain(&c), Err((2, _))));
+    }
+
+    #[test]
+    fn deleted_row_is_caught() {
+        let mut c = chain(5);
+        c.remove(2);
+        assert!(matches!(check_chain(&c), Err((2, _))));
+    }
+}
