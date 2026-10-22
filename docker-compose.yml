@@ -12,6 +12,9 @@ services:
     environment:
       MODEL_ENDPOINT: http://local-llm:11434
       ADCCL_THRESHOLD: "0.7071"
+      # The verifier must be independent of the generator (a different model or endpoint),
+      # or governance refuses. Example: VERIFIER_MODEL: "qwen2.5:7b". To accept self-verification
+      # knowingly (receipts marked self-verified), set SELIN_ALLOW_SELF_VERIFY: "1".
       # Optional: mount MVPC into the image yourself if you need verify-artifact in-container
       # MVPC_BIN: /usr/local/bin/mvpc
     volumes:

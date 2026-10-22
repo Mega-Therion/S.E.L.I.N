@@ -24,4 +24,4 @@ pub use three_tier_gate::{
     signoff_token, ActionEvaluation, ActionSecurityLevel, SignOffLedger, ThreeTierGate,
     SIGNOFF_RISK_THRESHOLD,
 };
-pub use verifier::{build_verifier_prompt, extract_scores, FAIL_CLOSED};
+pub use verifier::{build_verifier_prompt, extract_scores, parse_verifier_strict, FAIL_CLOSED};

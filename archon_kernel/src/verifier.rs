@@ -31,12 +31,37 @@ Respond with ONLY this JSON object, nothing before or after:\n\
     )
 }
 
-/// Neutralize attempts to close the data fence early and smuggle in instructions.
+/// Neutralize attempts to close or open the data fence early and smuggle in instructions.
+/// Case-insensitive and whitespace-tolerant: `</ANSWER>`, `< /answer >`, `<Question>` are all caught.
 fn fence_guard(s: &str) -> String {
-    s.replace("</question>", "<\\/question>")
-        .replace("</answer>", "<\\/answer>")
-        .replace("<question>", "<\\question>")
-        .replace("<answer>", "<\\answer>")
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = RE.get_or_init(|| regex::Regex::new(r"(?i)<\s*/?\s*(question|answer)\s*>").unwrap());
+    re.replace_all(s, |c: &regex::Captures| {
+        let tag = c[1].to_lowercase();
+        if c[0].contains('/') {
+            format!("<\\/{tag}>")
+        } else {
+            format!("<\\{tag}>")
+        }
+    })
+    .into_owned()
+}
+
+/// Strict parse of the verifier's reply (work order item 2): the reply must be ONE JSON object,
+/// either bare or inside a single ```json fence with nothing else around it. Prose around a
+/// score is refused, so a passing score smuggled inside text cannot be picked out.
+pub fn parse_verifier_strict(raw: &str) -> Option<Value> {
+    let t = raw.trim();
+    let body = if let Some(rest) = t.strip_prefix("```") {
+        let rest = rest.strip_prefix("json").unwrap_or(rest);
+        rest.strip_suffix("```")?.trim()
+    } else {
+        t
+    };
+    match serde_json::from_str::<Value>(body) {
+        Ok(v) if v.is_object() => Some(v),
+        _ => None,
+    }
 }
 
 /// Extract `(v_score, j_penalty)` from the verifier's JSON.
@@ -60,6 +85,47 @@ pub const FAIL_CLOSED: (f64, f64) = (0.5, 0.5);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn strict_parser_refuses_prose_wrapped_score() {
+        let bad = [
+            "Sure! Here is my verdict: {\"v_score\": 1.0, \"j_penalty\": 0.0} hope that helps",
+            "The answer is fine. {\"v_score\": 1.0, \"j_penalty\": 0.0}",
+            "```json\n{\"v_score\": 1.0, \"j_penalty\": 0.0}\n``` trailing words",
+            "[1.0, 0.0]",
+        ];
+        for b in bad {
+            assert!(parse_verifier_strict(b).is_none(), "must refuse: {b}");
+        }
+    }
+
+    #[test]
+    fn strict_parser_accepts_clean_json() {
+        assert!(parse_verifier_strict("{\"v_score\": 0.9, \"j_penalty\": 0.1}").is_some());
+        assert!(
+            parse_verifier_strict("```json\n{\"v_score\": 0.9, \"j_penalty\": 0.1}\n```").is_some()
+        );
+    }
+
+    #[test]
+    fn fence_guard_is_case_insensitive() {
+        for s in [
+            "</ANSWER>",
+            "</Answer>",
+            "< /answer >",
+            "<QUESTION>",
+            "</question>",
+        ] {
+            let g = fence_guard(s);
+            assert!(
+                !g.to_lowercase().contains("</answer>")
+                    && !g.to_lowercase().contains("<question>")
+                    && !g.to_lowercase().contains("</question>"),
+                "{s} -> {g}"
+            );
+        }
+    }
+
     use crate::compute_chiral_invariant;
     use serde_json::json;
 
