@@ -6,6 +6,7 @@ pub mod adccl_gate;
 pub mod basepoint;
 pub mod provider;
 pub mod risk;
+pub mod rytt_seal;
 pub mod three_tier_gate;
 pub mod verifier;
 

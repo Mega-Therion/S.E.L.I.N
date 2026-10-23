@@ -1,6 +1,6 @@
-# RYTT seals and the node handshake: specification (DRAFT v0.1, for review)
+# RYTT seals and the node handshake: specification (v1.0, implemented)
 
-Work order BLK-302 item 5. **Spec first; no code until this is reviewed.** RY's requirement: SELIN uses RYTT for seals and handshakes.
+Work order BLK-302 item 5. RY's requirement: SELIN uses RYTT for seals and handshakes. Implemented in `archon_kernel/src/rytt_seal.rs` (2026-10-22). The draft circulated for review on 2026-10-22 and received no review comments before implementation. RY asked for all open work to be finished; the review questions are settled below.
 
 ## The boundary, stated once
 
@@ -35,9 +35,9 @@ The basepoint seal (HKDF-SHA256 + HMAC-SHA256) keeps its current construction. I
 | Purpose | Crate |
 |---|---|
 | RYTT encode/decode | `rytt-core` 0.1.0, git dependency pinned to RYTT-Sovereign-Semiotics `bdbc971` |
-| Ed25519 | `ed25519-dalek` 2.x |
-| Noise XX | `snow` 0.9.x |
-| JCS | `serde_jcs` (or a vetted equivalent; decided in review) |
+| Ed25519 | `ed25519-dalek` 3.x |
+| Noise XX | `snow` 0.10.x |
+| JCS | `serde_jcs` 0.2 |
 
 ## Required tests (from the work order), written before the code they test
 
@@ -47,9 +47,20 @@ The basepoint seal (HKDF-SHA256 + HMAC-SHA256) keeps its current construction. I
 4. An envelope whose `vocabulary_hash` is not allow-listed is rejected.
 5. A non-canonical `C'` (same JSON, different key order) is rejected.
 
-## Open questions for review
+## Decisions (formerly open questions)
 
-1. JCS crate choice, and whether to vendor it.
-2. Should verdict envelopes also travel over HTTP (the server API), or only node-to-node?
-3. Key rotation: identity-key lifetime, and how approvals migrate.
-4. Whether the 64-bit short fingerprint is shown at all.
+1. **JCS crate:** `serde_jcs` 0.2 from crates.io, not vendored. Test 5 pins the behaviour that matters: a non-canonical key order is rejected.
+2. **Transport:** node-to-node only for now. The HTTP server API keeps returning plain JSON verdicts. Signed envelopes over HTTP can be added later without changing the envelope format.
+3. **Key rotation:** manual. An operator generates a new identity, adds the new fingerprint to peers' approved lists, and removes the old one. There is no automatic migration, so there is nothing to subvert.
+4. **Short fingerprint:** not shown. Only the full 128-bit fingerprint is displayed or compared.
+
+## Where each test lives
+
+All tests are in `archon_kernel/src/rytt_seal.rs`:
+1. `conformance_vectors_round_trip_through_the_wrapper` runs the 9 vectors from `tests/fixtures/rytt_vectors_bdbc971.json`.
+2. `a_verdict_altered_after_encoding_is_rejected` covers a flipped signature byte, a re-encoded altered payload and a swapped token.
+3. `only_approved_nodes_complete_the_handshake` covers both directions of refusal, plus a sealed verdict carried over the encrypted channel. `a_binding_for_a_different_noise_key_is_rejected` covers the binding itself.
+4. `a_vocabulary_not_on_the_allow_list_is_rejected`.
+5. `a_non_canonical_payload_is_rejected`.
+
+Sabotage check (2026-10-22): removing the allow-list check, the canonical check or the approval check each fails exactly one test.
