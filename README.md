@@ -71,6 +71,9 @@ Each claim below is backed by a test that fails when the named guard is removed.
 | Non-loopback bind without API key is refused (the real binary exits 1) | `serve_refuses_network_bind_without_api_key` | `cargo test --test integration` |
 | A high-risk sign-off is redeemed, not trusted, end to end | `high_risk_signoff_is_redeemed_not_trusted_end_to_end` | `cargo test --test integration` |
 | Prompt sanitizer strips zero-width injection | `test_sanitize_prompt_strips_zero_width_injection` | `cargo test --test server_tests` |
+| A sealed verdict altered after RYTT encoding is rejected | `a_verdict_altered_after_encoding_is_rejected` | `cargo test -p archon_kernel` |
+| Only operator-approved nodes complete the Noise XX handshake | `only_approved_nodes_complete_the_handshake` | `cargo test -p archon_kernel` |
+| RYTT envelopes from an unlisted grammar or with non-canonical JSON are rejected | `a_vocabulary_not_on_the_allow_list_is_rejected`, `a_non_canonical_payload_is_rejected` | `cargo test -p archon_kernel` |
 
 ## How this was built
 

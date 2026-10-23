@@ -14,6 +14,11 @@ hex = "0.4"
 hmac = "0.12"
 hkdf = "0.12"
 getrandom = "0.2"
+# Work order item 5 (docs/RYTT_SEAL_SPEC.md): RYTT envelopes, signed verdicts, Noise XX.
+rytt-core = { git = "https://github.com/Mega-Therion/RYTT-Sovereign-Semiotics", rev = "bdbc971" }
+ed25519-dalek = "3"
+snow = "0.10"
+serde_jcs = "0.2"
 
 [dev-dependencies]
 proptest = "1"
