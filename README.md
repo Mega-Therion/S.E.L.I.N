@@ -15,7 +15,7 @@ Local-first AI governance node and ARCHON runtime. Passphrase-derived encrypted 
 
 ## System Role & Mission
 
-`chyren-selin` is the open, distributable build of the Chyren stack. `chyren-aeon` is the private core. SELIN is meant to run on the user's own hardware: local-first, no telemetry, passphrase-derived encrypted SQLite store, and fail-closed capability gates.
+`chyren-selin` is the open, distributable build of the Chyren stack. The private engine is the repository [Aeon](https://github.com/Mega-Therion/Aeon). SELIN is meant to run on the user's own hardware: local-first, no telemetry, passphrase-derived encrypted SQLite store, and fail-closed capability gates.
 
 ## What is actually checked
 
