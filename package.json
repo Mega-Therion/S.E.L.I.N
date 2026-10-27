@@ -24,5 +24,8 @@
   "dependencies": {
     "ai": "^7.0.55",
     "eve": "^0.71.0"
+  },
+  "overrides": {
+    "undici": "^8.12.3"
   }
 }
