@@ -1,6 +1,5 @@
 {
-  "framework": null,
-  "buildCommand": "npm run build",
-  "outputDirectory": ".",
-  "cleanUrls": true
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api" }
+  ]
 }

@@ -23,7 +23,7 @@ export function handle(req, res) {
 
   const url = new URL(req.url, `http://${req.headers.host}`);
 
-  if (url.pathname === '/api/archon/status' || url.pathname === '/') {
+  if (url.pathname === '/api/archon/status' || url.pathname === '/' || url.pathname === '/api' || url.pathname === '/api/') {
     // This deployment runs the gate formula on scores the caller supplies. It runs no verifier and no model,
     // so it does not claim an armed control loop.
     send(res, 200, {
