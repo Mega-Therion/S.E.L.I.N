@@ -64,6 +64,19 @@ test('route: malformed JSON is 400', async () => {
   await withServer(async (base) => assert.equal((await post(base, '{not json')).status, 400));
 });
 
+test('the front door is a page and the API stays JSON', async () => {
+  await withServer(async (base) => {
+    const page = await fetch(`${base}/`);
+    assert.equal(page.headers.get('content-type'), 'text/html; charset=utf-8');
+    const html = await page.text();
+    assert.match(html, /SELIN/);
+    assert.match(html, /chi = sqrt/);
+    assert.match(html, /This screen is the gate/);
+    const api = await fetch(`${base}/api/archon/status`);
+    assert.match(api.headers.get('content-type'), /application\/json/);
+  });
+});
+
 test('status does not claim an armed loop', async () => {
   await withServer(async (base) => {
     const s = await (await fetch(`${base}/api/archon/status`)).json();

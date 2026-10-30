@@ -9,6 +9,35 @@ function send(res, code, body) {
   res.end(JSON.stringify(body));
 }
 
+const GATE_PAGE = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SELIN</title>
+<style>
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:#070b12;color:#e8eef8;font:18px system-ui}
+main{max-width:38rem;padding:2rem}
+h1{font-weight:500;letter-spacing:.14em}
+code{color:#d9b36c}
+p{line-height:1.5}
+</style>
+</head>
+<body>
+<main>
+<h1>SELIN</h1>
+<p><code>chi = sqrt((V^2 + (1 - J)^2) / 2)</code></p>
+<p>Floor ${CHIRAL_FLOOR}</p>
+<p>This screen is the gate. The scores are checked at the API.</p>
+</main>
+</body>
+</html>`;
+
+function sendHtml(res, code, html) {
+  res.writeHead(code, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
+}
+
 export function handle(req, res) {
   // CORS: the edge is a stateless formula endpoint and holds no session, so any origin may call it
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -23,7 +52,12 @@ export function handle(req, res) {
 
   const url = new URL(req.url, `http://${req.headers.host}`);
 
-  if (url.pathname === '/api/archon/status' || url.pathname === '/' || url.pathname === '/api' || url.pathname === '/api/') {
+  if (url.pathname === '/' && req.method === 'GET') {
+    sendHtml(res, 200, GATE_PAGE);
+    return;
+  }
+
+  if (url.pathname === '/api/archon/status' || url.pathname === '/api' || url.pathname === '/api/') {
     // This deployment runs the gate formula on scores the caller supplies. It runs no verifier and no model,
     // so it does not claim an armed control loop.
     send(res, 200, {
