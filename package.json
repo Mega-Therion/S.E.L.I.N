@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "echo 'build ok'",
-    "test": "node --test test/gate.test.mjs"
+    "test": "node --test test/gate.test.mjs test/gate_vectors.test.mjs"
   },
   "repository": {
     "type": "git",

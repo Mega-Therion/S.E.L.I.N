@@ -66,7 +66,7 @@ export function handle(req, res) {
       adccl: 'formula-only',
       gate: {
         formula: 'chi = sqrt((V^2 + (1 - J)^2) / 2)',
-        checks: ['finiteness', 'floor', 'mirror', 'components', 'ceiling'],
+        checks: ['domain', 'floor', 'mirror', 'components', 'ceiling'],
         floor: CHIRAL_FLOOR,
         ceiling: SOVEREIGN_CEILING,
         mirror_gap_min: MIRROR_GAP_MIN,
