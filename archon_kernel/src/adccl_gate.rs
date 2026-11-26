@@ -12,8 +12,20 @@ pub const SOVEREIGN_CEILING: f64 = 0.953_939_201_416_945_6;
 /// Minimum χ(V, J) − χ(1 − V, J) for a claim to count as distinguishable from its negation.
 pub const MIRROR_GAP_MIN: f64 = 0.15;
 
+/// The domain check's refusal, the whole `rejection_reason` of a refused score. The JS edge gate
+/// (`gate.mjs`) writes the same text, and the shared vectors hold both to it.
+pub const DOMAIN_REFUSAL: &str = "domain: V and J must each be a finite number in [0, 1]";
+
+/// A score the gate can judge: a finite number in [0, 1].
+fn in_domain(score: f64) -> bool {
+    score.is_finite() && (0.0..=1.0).contains(&score)
+}
+
 /// Authoritative Chiral Invariant formula:
 /// χ = √ ( V² + (1 - J)² ) / √2
+///
+/// The formula clamps its inputs to [0, 1]. The gate does not rely on that:
+/// [`AdcclGate::evaluate`] refuses a score outside [0, 1] before it computes χ.
 pub fn compute_chiral_invariant(v_gate_score: f64, drift_penalty_j: f64) -> f64 {
     let v_clamped = v_gate_score.clamp(0.0, 1.0);
     let j_clamped = drift_penalty_j.clamp(0.0, 1.0);
@@ -60,13 +72,19 @@ pub struct VerificationReport {
 ///
 /// The checks:
 ///
-/// 1. finiteness: a non-finite score or χ is refused (comparisons against NaN are all false,
-///    so without this check NaN would pass every other one);
+/// 1. domain: V and J must each be a finite number in [0, 1]. Anything else (NaN, ±∞, a value
+///    outside [0, 1]) is refused, not clamped into range, and no χ is computed from it: the
+///    report carries NaN for χ and mirror χ. Comparisons against NaN are all false, so without
+///    this check NaN would pass every other one;
 /// 2. floor: χ below the gate threshold is refused;
 /// 3. mirror: χ(V, J) − χ(1 − V, J) below [`MIRROR_GAP_MIN`] is refused;
 /// 4. components: V and 1 − J must each be at least [`CHIRAL_FLOOR`], so a strong axis cannot
 ///    carry a weak one;
 /// 5. ceiling: χ above [`SOVEREIGN_CEILING`] is held (suspend), not released.
+///
+/// The JS edge gate (`gate.mjs`) follows the same contract. Both are tested against the shared
+/// vectors in `tests/fixtures/selin_gate_vectors.json` (`tests/gate_conformance.rs` here,
+/// `test/gate_vectors.test.mjs` for the edge).
 pub struct AdcclGate {
     pub threshold: f64,
 }
@@ -85,41 +103,52 @@ impl AdcclGate {
     }
 
     pub fn evaluate(&self, v_score: f64, j_penalty: f64) -> VerificationReport {
+        // Check 1, domain. A score the gate cannot judge is refused as it is: it is not clamped
+        // into [0, 1] (which would turn V = 1.2 into a passing V = 1), and no χ is computed from it.
+        if !(in_domain(v_score) && in_domain(j_penalty)) {
+            return VerificationReport {
+                v_gate_score: v_score,
+                drift_penalty_j: j_penalty,
+                chiral_invariant: f64::NAN,
+                passed: false,
+                rejection_reason: Some(DOMAIN_REFUSAL.to_string()),
+                mirror_chi: f64::NAN,
+                signal: GateSignal::Abort,
+            };
+        }
+
+        // Both scores are finite and in [0, 1], so χ and mirror χ are finite too and the
+        // comparisons below never see NaN.
         let chi = compute_chiral_invariant(v_score, j_penalty);
         let m_chi = mirror_chi(v_score, j_penalty);
         let mut halts: Vec<String> = Vec::new();
         let mut holds: Vec<String> = Vec::new();
 
-        if !(v_score.is_finite() && j_penalty.is_finite() && chi.is_finite() && m_chi.is_finite()) {
-            halts.push("finiteness: a score or the invariant is not a finite number".to_string());
-        } else {
-            if chi < self.threshold {
-                halts.push(format!(
-                    "Chiral Violation: Invariant {:.4} < threshold {:.4}",
-                    chi, self.threshold
-                ));
-            }
-            let gap = chi - m_chi;
-            if gap < MIRROR_GAP_MIN {
-                halts.push(format!(
-                    "mirror: the inverted claim scores {:.4} against {:.4} (gap {:.4} < {:.2})",
-                    m_chi, chi, gap, MIRROR_GAP_MIN
-                ));
-            }
-            let v_c = v_score.clamp(0.0, 1.0);
-            let j_c = 1.0 - j_penalty.clamp(0.0, 1.0);
-            if v_c < CHIRAL_FLOOR || j_c < CHIRAL_FLOOR {
-                halts.push(format!(
-                    "components: V = {:.4} and 1 - J = {:.4} must each be at least {:.4}",
-                    v_c, j_c, CHIRAL_FLOOR
-                ));
-            }
-            if chi > SOVEREIGN_CEILING {
-                holds.push(format!(
-                    "ceiling: invariant {:.4} > {:.4}; held for escalation",
-                    chi, SOVEREIGN_CEILING
-                ));
-            }
+        if chi < self.threshold {
+            halts.push(format!(
+                "Chiral Violation: Invariant {:.4} < threshold {:.4}",
+                chi, self.threshold
+            ));
+        }
+        let gap = chi - m_chi;
+        if gap < MIRROR_GAP_MIN {
+            halts.push(format!(
+                "mirror: the inverted claim scores {:.4} against {:.4} (gap {:.4} < {:.2})",
+                m_chi, chi, gap, MIRROR_GAP_MIN
+            ));
+        }
+        let one_minus_j = 1.0 - j_penalty;
+        if v_score < CHIRAL_FLOOR || one_minus_j < CHIRAL_FLOOR {
+            halts.push(format!(
+                "components: V = {:.4} and 1 - J = {:.4} must each be at least {:.4}",
+                v_score, one_minus_j, CHIRAL_FLOOR
+            ));
+        }
+        if chi > SOVEREIGN_CEILING {
+            holds.push(format!(
+                "ceiling: invariant {:.4} > {:.4}; held for escalation",
+                chi, SOVEREIGN_CEILING
+            ));
         }
 
         let signal = if !halts.is_empty() {
@@ -243,6 +272,29 @@ mod tests {
             let r = AdcclGate::default().evaluate(v, j);
             assert!(!r.passed, "V={v} J={j}");
             assert_eq!(r.signal, GateSignal::Abort);
+        }
+    }
+
+    #[test]
+    fn out_of_range_scores_are_refused_not_clamped() {
+        // Each pair, clamped into [0, 1], would pass. Out of range, the domain check refuses it.
+        for (v, j) in [
+            (1.2, 0.1),
+            (0.9, -0.1),
+            (1.0 + 1e-12, 0.1),
+            (0.9, -1e-12),
+            (1.5, 0.2),
+        ] {
+            let r = AdcclGate::default().evaluate(v, j);
+            assert!(!r.passed, "V={v} J={j}");
+            assert_eq!(r.signal, GateSignal::Abort);
+            assert_eq!(r.rejection_reason.as_deref(), Some(DOMAIN_REFUSAL));
+            assert!(
+                r.chiral_invariant.is_nan() && r.mirror_chi.is_nan(),
+                "no invariant is computed from a refused score"
+            );
+            let clamped = AdcclGate::default().evaluate(v.clamp(0.0, 1.0), j.clamp(0.0, 1.0));
+            assert!(clamped.passed, "the clamped pair for V={v} J={j} passes");
         }
     }
 

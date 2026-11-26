@@ -12,7 +12,7 @@ pub mod verifier;
 
 pub use adccl_gate::{
     compute_chiral_invariant, mirror_chi, AdcclGate, GateSignal, VerificationReport, CHIRAL_FLOOR,
-    MIRROR_GAP_MIN, SOVEREIGN_CEILING,
+    DOMAIN_REFUSAL, MIRROR_GAP_MIN, SOVEREIGN_CEILING,
 };
 pub use basepoint::{generate_basepoint_seal, generate_entropy, verify_basepoint_seal};
 pub use provider::AdaptiveResilientFormatter;
