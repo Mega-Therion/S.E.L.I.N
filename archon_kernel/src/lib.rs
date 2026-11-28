@@ -20,21 +20,24 @@ pub use adccl_gate::{
 };
 pub use basepoint::{generate_basepoint_seal, generate_entropy, verify_basepoint_seal};
 pub use memory_tiers::{
-    MemoryError, MemoryRecord, MemoryStore, MemoryTier, CANON_QUORUM, MEMORY_ARTIFACTS_DDL,
+    attestation_from_seed, canon_attestation_message, canon_witness_hash, sign_canon_attestation,
+    CanonAttestation, MemoryError, MemoryRecord, MemoryStore, MemoryTier, CANON_QUORUM,
+    MEMORY_ARTIFACTS_DDL,
 };
 pub use powi::{
-    deterministic_check_witness, evaluate_sanction, receipt_chain_hash, sign_statement, PowiError,
-    PowiReceipt, SanctionDecision, ViolationEvidence,
+    checker_attestation_message, evaluate_sanction, receipt_chain_hash, sign_checker_attestation,
+    sign_statement, PowiError, PowiReceipt, SanctionDecision, ViolationEvidence,
 };
 pub use provider::AdaptiveResilientFormatter;
 pub use risk::classify_prompt;
 pub use samo_envelope::{
-    content_hash, open_certificate, open_claim, seal_certificate, seal_claim, Certainty, Claim,
-    FalsificationCertificate, SamoError,
+    content_hash, open_certificate, open_certificate_with_trusted_issuers, open_claim,
+    seal_certificate, seal_claim, Certainty, Claim, FalsificationCertificate, SamoError,
 };
 pub use staging_pool::{
-    Neighbor, NeighborTable, StagedArtifact, StagingError, StagingPool, StagingState,
-    MAX_NEIGHBORHOOD, M_CRIT,
+    bridge_attestation_message, sign_bridge_attestation, sign_valid_receipt, valid_receipt_message,
+    BridgeAttestation, Neighbor, NeighborTable, StagedArtifact, StagingError, StagingPool,
+    StagingState, ValidReceipt, MAX_NEIGHBORHOOD, M_CRIT,
 };
 pub use three_tier_gate::{
     signoff_token, ActionEvaluation, ActionSecurityLevel, SignOffLedger, ThreeTierGate,

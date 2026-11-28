@@ -53,6 +53,7 @@ pub enum SamoError {
     HashMismatch,
     WitnessMismatch,
     EmptyComposition,
+    UntrustedIssuer,
 }
 
 impl std::fmt::Display for SamoError {
@@ -69,6 +70,9 @@ impl std::fmt::Display for SamoError {
                 write!(f, "witness hash does not match the certificate body")
             }
             Self::EmptyComposition => write!(f, "cannot compose zero claims"),
+            Self::UntrustedIssuer => {
+                write!(f, "certificate issuer is not in the trusted issuer set")
+            }
         }
     }
 }
@@ -256,6 +260,36 @@ impl FalsificationCertificate {
             .map_err(|_| SamoError::BadSignature)?;
         Ok(())
     }
+
+    /// Issue a certificate from a raw 32-byte seed. Convenience for callers
+    /// (like the `selin` CLI) that hold seeds rather than `ed25519_dalek` keys.
+    pub fn issue_from_seed(
+        seed: [u8; 32],
+        artifact_hash: &str,
+        failing_input: Value,
+    ) -> Result<Self, SamoError> {
+        Self::issue(&SigningKey::from_bytes(&seed), artifact_hash, failing_input)
+    }
+
+    /// Verify the certificate *and* require its issuer to be in the
+    /// evaluator's configured trusted-issuer set (hex public keys).
+    ///
+    /// [`Self::verify`] alone only proves the certificate is self-consistent:
+    /// anyone can mint a key, choose an artifact hash and failing input, and
+    /// sign — `issue` takes all of them from the caller. A self-signed
+    /// certificate from an unconfigured key must never, by itself, demote a
+    /// record, so every trust decision (e.g. demotion into Quarantine) goes
+    /// through this check. Fail-closed: an empty trusted set trusts nobody.
+    pub fn verify_with_trusted_issuers(
+        &self,
+        trusted_issuers: &[String],
+    ) -> Result<(), SamoError> {
+        self.verify()?;
+        if !trusted_issuers.iter().any(|k| k == &self.issuer) {
+            return Err(SamoError::UntrustedIssuer);
+        }
+        Ok(())
+    }
 }
 
 /// Seal a claim into a RYTT wire envelope (signed, canonical, allow-listed).
@@ -295,6 +329,20 @@ pub fn open_certificate(
     let cert: FalsificationCertificate =
         serde_json::from_value(v).map_err(|e| SamoError::Json(e.to_string()))?;
     cert.verify()?;
+    Ok(cert)
+}
+
+/// Open a wire envelope into a falsification certificate and verify it
+/// against a configured trusted-issuer set (see
+/// [`FalsificationCertificate::verify_with_trusted_issuers`]). This is the
+/// open path for certificates that will be *acted on* (e.g. demotions).
+pub fn open_certificate_with_trusted_issuers(
+    wire: &WireVerdict,
+    allow: &[String],
+    trusted_issuers: &[String],
+) -> Result<FalsificationCertificate, SamoError> {
+    let cert = open_certificate(wire, allow)?;
+    cert.verify_with_trusted_issuers(trusted_issuers)?;
     Ok(cert)
 }
 
@@ -370,6 +418,57 @@ mod tests {
         let other = NodeIdentity::generate().unwrap();
         resigned.issuer = hex::encode(other.signing.verifying_key().to_bytes());
         assert!(resigned.verify().is_err());
+    }
+
+    #[test]
+    fn regression_self_signed_certificate_from_untrusted_issuer_is_rejected() {
+        // Regression (finding 3): anyone can call `issue` with a key they
+        // minted, an artifact hash they chose, and a failing input they
+        // invented, and the result passes plain `verify()` — it is
+        // self-consistent. Trust decisions must additionally require the
+        // issuer to be in the configured trusted set.
+        let attacker = NodeIdentity::generate().unwrap();
+        let cert = FalsificationCertificate::issue(
+            &attacker.signing,
+            "victim-artifact",
+            json!({"x": 0}),
+        )
+        .unwrap();
+        cert.verify().unwrap(); // self-consistent — that alone proves nothing
+        let trusted = vec![hex::encode(
+            NodeIdentity::generate()
+                .unwrap()
+                .signing
+                .verifying_key()
+                .to_bytes(),
+        )];
+        assert!(matches!(
+            cert.verify_with_trusted_issuers(&trusted),
+            Err(SamoError::UntrustedIssuer)
+        ));
+        // An empty trusted set trusts nobody (fail closed).
+        assert!(matches!(
+            cert.verify_with_trusted_issuers(&[]),
+            Err(SamoError::UntrustedIssuer)
+        ));
+
+        // Positive path: the same check passes for a configured issuer, and
+        // the trusted open path round-trips its certificate.
+        let authority = NodeIdentity::generate().unwrap();
+        let authority_key = hex::encode(authority.signing.verifying_key().to_bytes());
+        let good =
+            FalsificationCertificate::issue(&authority.signing, "ab12", json!({"input": "0"}))
+                .unwrap();
+        good.verify_with_trusted_issuers(&[authority_key]).unwrap();
+        let allow = default_allow_list().unwrap();
+        let wire = seal_certificate(&authority.signing, &good).unwrap();
+        let trusted = vec![hex::encode(authority.signing.verifying_key().to_bytes())];
+        let back = open_certificate_with_trusted_issuers(&wire, &allow, &trusted).unwrap();
+        assert_eq!(back.artifact_hash, "ab12");
+        assert!(matches!(
+            open_certificate_with_trusted_issuers(&wire, &allow, &[]),
+            Err(SamoError::UntrustedIssuer)
+        ));
     }
 
     #[test]
