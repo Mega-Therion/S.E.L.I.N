@@ -280,10 +280,7 @@ impl FalsificationCertificate {
     /// certificate from an unconfigured key must never, by itself, demote a
     /// record, so every trust decision (e.g. demotion into Quarantine) goes
     /// through this check. Fail-closed: an empty trusted set trusts nobody.
-    pub fn verify_with_trusted_issuers(
-        &self,
-        trusted_issuers: &[String],
-    ) -> Result<(), SamoError> {
+    pub fn verify_with_trusted_issuers(&self, trusted_issuers: &[String]) -> Result<(), SamoError> {
         self.verify()?;
         if !trusted_issuers.iter().any(|k| k == &self.issuer) {
             return Err(SamoError::UntrustedIssuer);
@@ -428,12 +425,9 @@ mod tests {
         // self-consistent. Trust decisions must additionally require the
         // issuer to be in the configured trusted set.
         let attacker = NodeIdentity::generate().unwrap();
-        let cert = FalsificationCertificate::issue(
-            &attacker.signing,
-            "victim-artifact",
-            json!({"x": 0}),
-        )
-        .unwrap();
+        let cert =
+            FalsificationCertificate::issue(&attacker.signing, "victim-artifact", json!({"x": 0}))
+                .unwrap();
         cert.verify().unwrap(); // self-consistent — that alone proves nothing
         let trusted = vec![hex::encode(
             NodeIdentity::generate()

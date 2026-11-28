@@ -194,8 +194,7 @@ impl ViolationEvidence {
                     .map_err(|_| PowiError::BadSignature)?
                     .try_into()
                     .map_err(|_| PowiError::BadSignature)?;
-                let msg =
-                    checker_attestation_message(audit_row_hash, check_id, expected, observed);
+                let msg = checker_attestation_message(audit_row_hash, check_id, expected, observed);
                 pk.verify(&msg, &Signature::from_bytes(&sig_bytes))
                     .map_err(|_| PowiError::BadSignature)?;
                 Ok(())
@@ -410,10 +409,7 @@ mod tests {
     fn a_broken_chain_is_proven_by_recomputation() {
         let r = PowiReceipt::issue(&issuer(), "peer-a", chain_evidence(false)).unwrap();
         r.verify(&[]).unwrap();
-        assert_eq!(
-            evaluate_sanction(Some(&r), &[]),
-            SanctionDecision::Upheld
-        );
+        assert_eq!(evaluate_sanction(Some(&r), &[]), SanctionDecision::Upheld);
     }
 
     #[test]
@@ -612,7 +608,10 @@ mod tests {
 
     #[test]
     fn a_bare_vote_cannot_sanction() {
-        assert_eq!(evaluate_sanction(None, &[]), SanctionDecision::RejectedNoProof);
+        assert_eq!(
+            evaluate_sanction(None, &[]),
+            SanctionDecision::RejectedNoProof
+        );
     }
 
     #[test]

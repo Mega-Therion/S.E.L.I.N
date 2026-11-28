@@ -121,7 +121,8 @@ fn validate_transition(
     record: &MemoryRecord,
     evidence: &StoreEvidence,
 ) -> Result<Option<String>, String> {
-    let canon_witness = |rec: &MemoryRecord| verified_canon_witness(rec, evidence.canon_attestations);
+    let canon_witness =
+        |rec: &MemoryRecord| verified_canon_witness(rec, evidence.canon_attestations);
     match existing {
         None => {
             // First insert: Canon still requires the full evidence rule;
@@ -146,11 +147,9 @@ fn validate_transition(
                         // Canon content is what was verified; changing the
                         // payload under the same hash voids the verification.
                         if old.payload != record.payload {
-                            return Err(
-                                "Canon records are immutable in the persistence store; \
+                            return Err("Canon records are immutable in the persistence store; \
                                  a changed payload must be re-verified as a new record"
-                                    .into(),
-                            );
+                                .into());
                         }
                         return canon_witness(record).map(Some);
                     }
@@ -413,10 +412,20 @@ mod tests {
     #[test]
     fn tier_transitions_update_in_place_and_count() {
         let c = conn();
-        store_memory_record(&c, &record("bb22", MemoryTier::Sandbox), TS, &StoreEvidence::none())
-            .unwrap();
-        store_memory_record(&c, &record("cc33", MemoryTier::Sandbox), TS, &StoreEvidence::none())
-            .unwrap();
+        store_memory_record(
+            &c,
+            &record("bb22", MemoryTier::Sandbox),
+            TS,
+            &StoreEvidence::none(),
+        )
+        .unwrap();
+        store_memory_record(
+            &c,
+            &record("cc33", MemoryTier::Sandbox),
+            TS,
+            &StoreEvidence::none(),
+        )
+        .unwrap();
         assert_eq!(count_by_tier(&c, MemoryTier::Sandbox).unwrap(), 2);
 
         // The lawful path persists step by step: Sandbox -> Conditional with
@@ -488,8 +497,13 @@ mod tests {
         // Canon with no witness or quorum at all. Both the direct jump and
         // an evidence-free (or single-attester) Canon write are rejected.
         let c = conn();
-        store_memory_record(&c, &record("s1", MemoryTier::Sandbox), TS, &StoreEvidence::none())
-            .unwrap();
+        store_memory_record(
+            &c,
+            &record("s1", MemoryTier::Sandbox),
+            TS,
+            &StoreEvidence::none(),
+        )
+        .unwrap();
         assert!(store_memory_record(
             &c,
             &record("s1", MemoryTier::Canon),
@@ -524,10 +538,7 @@ mod tests {
             &StoreEvidence::canon(&atts("c1", &[31, 32])),
         )
         .unwrap();
-        assert_eq!(
-            load_memory_tier(&c, "c1").unwrap(),
-            Some(MemoryTier::Canon)
-        );
+        assert_eq!(load_memory_tier(&c, "c1").unwrap(), Some(MemoryTier::Canon));
     }
 
     #[test]
@@ -593,8 +604,13 @@ mod tests {
             &StoreEvidence::none(),
         )
         .unwrap();
-        store_memory_record(&c, &record("s1", MemoryTier::Sandbox), TS, &StoreEvidence::none())
-            .unwrap();
+        store_memory_record(
+            &c,
+            &record("s1", MemoryTier::Sandbox),
+            TS,
+            &StoreEvidence::none(),
+        )
+        .unwrap();
         store_memory_record(
             &c,
             &record("q2", MemoryTier::Quarantine),

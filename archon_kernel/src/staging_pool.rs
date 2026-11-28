@@ -58,11 +58,7 @@ fn key_from_hex(h: &str) -> Result<VerifyingKey, StagingError> {
     VerifyingKey::from_bytes(&b).map_err(|_| StagingError::BadKey)
 }
 
-fn verify_hex_signature(
-    key_hex: &str,
-    msg: &[u8],
-    sig_hex: &str,
-) -> Result<(), StagingError> {
+fn verify_hex_signature(key_hex: &str, msg: &[u8], sig_hex: &str) -> Result<(), StagingError> {
     let pk = key_from_hex(key_hex)?;
     let sig_bytes: [u8; 64] = hex::decode(sig_hex)
         .map_err(|_| StagingError::BadSignature)?
@@ -187,7 +183,10 @@ impl NeighborTable {
 
     /// Configure a key whose [`ValidReceipt`] attestations this table trusts
     /// (hex Ed25519 public key). Receipts from any other key earn no weight.
-    pub fn register_receipt_attester(&mut self, attester_key_hex: &str) -> Result<(), StagingError> {
+    pub fn register_receipt_attester(
+        &mut self,
+        attester_key_hex: &str,
+    ) -> Result<(), StagingError> {
         key_from_hex(attester_key_hex)?;
         self.receipt_attesters.insert(attester_key_hex.to_string());
         Ok(())
@@ -225,7 +224,9 @@ impl NeighborTable {
             return Err(StagingError::InvalidReceipt("receipt id is empty".into()));
         }
         if !self.receipt_attesters.contains(&receipt.attester_key) {
-            return Err(StagingError::UntrustedAttester(receipt.attester_key.clone()));
+            return Err(StagingError::UntrustedAttester(
+                receipt.attester_key.clone(),
+            ));
         }
         verify_hex_signature(
             &receipt.attester_key,
@@ -545,7 +546,8 @@ mod tests {
 
     fn table_with_attester() -> NeighborTable {
         let mut t = NeighborTable::new();
-        t.register_receipt_attester(&key_hex(&attester_key())).unwrap();
+        t.register_receipt_attester(&key_hex(&attester_key()))
+            .unwrap();
         t
     }
 

@@ -130,7 +130,10 @@ pub fn canon_attestation_message(artifact_hash: &str) -> Vec<u8> {
 pub fn sign_canon_attestation(key: &SigningKey, artifact_hash: &str) -> CanonAttestation {
     CanonAttestation {
         attester: hex::encode(key.verifying_key().to_bytes()),
-        signature: hex::encode(key.sign(&canon_attestation_message(artifact_hash)).to_bytes()),
+        signature: hex::encode(
+            key.sign(&canon_attestation_message(artifact_hash))
+                .to_bytes(),
+        ),
     }
 }
 
@@ -555,7 +558,8 @@ mod tests {
 
         // Forged signature: attester field names one key, another key signed.
         let mut forged = attestation_from_seed([41u8; 32], &h);
-        forged.signature = sign_canon_attestation(&SigningKey::from_bytes(&[42u8; 32]), &h).signature;
+        forged.signature =
+            sign_canon_attestation(&SigningKey::from_bytes(&[42u8; 32]), &h).signature;
         let second = attestation_from_seed([43u8; 32], &h);
         assert!(matches!(
             s.insert_verified(r.clone(), &[forged, second]),
