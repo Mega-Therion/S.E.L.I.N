@@ -1,3 +1,6 @@
+> **Track:** `TRACK_IV` | **Author:** Ryan W. Yett (`Mega-Therion`) | **ORCID:** `0009-0001-1303-7190`
+> **Epistemic Fencing:** `[P]` Proved · `[D]` Derived · `[E]` Empirical · `[O]` Open · `[X]` Falsified
+
 # Chyren SELIN
 
 <p align="left">
@@ -74,6 +77,7 @@ Each claim below is backed by a test that fails when the named guard is removed.
 | A sealed verdict altered after RYTT encoding is rejected | `a_verdict_altered_after_encoding_is_rejected` | `cargo test -p archon_kernel` |
 | Only operator-approved nodes complete the Noise XX handshake | `only_approved_nodes_complete_the_handshake` | `cargo test -p archon_kernel` |
 | RYTT envelopes from an unlisted grammar or with non-canonical JSON are rejected | `a_vocabulary_not_on_the_allow_list_is_rejected`, `a_non_canonical_payload_is_rejected` | `cargo test -p archon_kernel` |
+| The Rust kernel and the JS edge gate give the same verdict on every shared gate vector (`archon_kernel/tests/fixtures/selin_gate_vectors.json`); a score that is NaN, ±Infinity or outside [0, 1] is refused, never clamped | `kernel_meets_every_gate_vector`, `test/gate_vectors.test.mjs` | `cargo test -p archon_kernel --test gate_conformance`, `npm test` |
 
 ## How this was built
 

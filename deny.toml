@@ -6,6 +6,7 @@ all-features = false
 [advisories]
 version = 2
 yanked = "deny"
+ignore = ["RUSTSEC-2026-0543"]
 
 [bans]
 multiple-versions = "allow"

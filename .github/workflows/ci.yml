@@ -32,8 +32,17 @@ jobs:
       - name: Clippy Linter Check
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      # Includes archon_kernel/tests/gate_conformance.rs: the kernel against every shared gate vector.
       - name: Run Tests
         run: cargo test --workspace --all-targets
+
+      # The vector file is printed by the kernel itself. The generator refuses to print it if the kernel's verdict on
+      # any row differs from the verdict the row states, and the committed copy must be byte-identical to what this
+      # kernel prints. The JS edge gate is held to the same file by test/gate_vectors.test.mjs (Node Edge Tests).
+      - name: Gate conformance vectors match the kernel
+        run: |
+          cargo run -q --locked -p archon_kernel --example selin_gate_vectors > "$RUNNER_TEMP/selin_gate_vectors.json"
+          diff -u archon_kernel/tests/fixtures/selin_gate_vectors.json "$RUNNER_TEMP/selin_gate_vectors.json"
 
   docker:
     name: Docker Build Verification
@@ -64,6 +73,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+      # test/gate.test.mjs, and test/gate_vectors.test.mjs: the edge gate against every shared gate vector.
       - name: Run node tests
         run: npm test
 

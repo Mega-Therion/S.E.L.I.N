@@ -1,4 +1,4 @@
-FROM rust:1.88-slim AS builder
+FROM rust:1-slim AS builder
 
 # bundled-sqlcipher-vendored-openssl vendors its own OpenSSL build, which needs
 # a full C toolchain + perl (FindBin) to run Configure. rust:*-slim ships neither.
